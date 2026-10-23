@@ -67,43 +67,55 @@ local function sendRecord(sessionId, blockId, recordId, record)
   })
 end
 
--- Clears this source on the display and sends the status of every terminal
---  in every session
-local function resync()
-  needResync = false
-  if post("/reset", {}) == nil then return end
+-- Sends the status of every terminal in one session
+local function sendSession(sessionId)
+  rex.call("session.attach", { session_id = sessionId })
+  local list = rex.session.list_blocks{ session_id = sessionId }
 
-  local list = rex.call("session.list") or { sessions = {} }
+  for _, block in ipairs(list and list.blocks or {}) do
+    if block.creator_name == terminal then
+      local status = rex.block.call(terminal, "program_status", {
+        session_id = sessionId,
+        block_id = block.block_id,
+      })
 
-  for _, s in ipairs(list.sessions) do
-    rex.call("session.attach", { session_id = s.session_id })
-    local view = rex.session.view{ session_id = s.session_id }
-
-    for _, w in ipairs(view and view.windows or {}) do
-      for _, layer in ipairs(w.layers or {}) do
-        for _, b in ipairs(layer.blocks or {}) do
-          if b.creator_name == terminal then
-            local st = rex.block.call(terminal, "program_status", {
-              session_id = s.session_id, block_id = b.block_id,
-            })
-
-            for _, record in ipairs(st and st.records or {}) do
-              sendRecord(s.session_id, b.block_id, record.id, record)
-            end
-          end
-        end
+      for _, record in ipairs(status and status.records or {}) do
+        sendRecord(sessionId, block.block_id, record.id, record)
       end
     end
   end
 end
 
+-- Clears this source on the display and sends the status of every terminal
+--  in every session
+local function resync()
+  needResync = false
+
+  if post("/reset", {}) == nil then
+    return
+  end
+
+  local list = rex.call("session.list")
+
+  for _, session in ipairs(list and list.sessions or {}) do
+    sendSession(session.session_id)
+  end
+end
+
 rex.on("terminal.program_status_changed", function(ctx, ev)
-  if needResync then return resync() end
+  if needResync then
+    resync()
+    return
+  end
+
   sendRecord(ctx.session_id, ctx.block_id, ev.id, ev.record)
 end)
 
 rex.on("terminal.program_status_removed", function(ctx, ev)
-  if needResync then return resync() end
+  if needResync then
+    resync()
+    return
+  end
 
   for _, id in ipairs(ev.ids or {}) do
     post("/status", { key = ctx.block_id .. "#" .. id, state = "clear" })
@@ -111,7 +123,11 @@ rex.on("terminal.program_status_removed", function(ctx, ev)
 end)
 
 rex.on("block_closed", function(ctx, ev)
-  if needResync then return resync() end
+  if needResync then
+    resync()
+    return
+  end
+
   post("/status", { key = ev.block_id, state = "clear" })
 end)
 
@@ -123,7 +139,11 @@ end)
 
 rex.every(15, function()
   local reply = post("/heartbeat", {})
-  if needResync or (reply and reply:match("^unknown")) then resync() end
+  local forgotten = reply ~= nil and reply:match("^unknown") ~= nil
+
+  if needResync or forgotten then
+    resync()
+  end
 end)
 
 resync()

@@ -76,7 +76,11 @@ void copyAscii(char *dst, size_t size, const String &src) {
   size_t n = 0;
   for (size_t i = 0; i < src.length() && n + 1 < size; i++) {
     uint8_t c = src[i];
-    if (c >= 0x80 && c < 0xC0) continue;   // UTF-8 continuation byte
+    // Skip UTF-8 continuation bytes
+    if (c >= 0x80 && c < 0xC0) {
+      continue;
+    }
+
     dst[n++] = (c >= 0x20 && c < 0x7F) ? c : '?';
   }
   dst[n] = 0;
@@ -84,19 +88,29 @@ void copyAscii(char *dst, size_t size, const String &src) {
 
 int parseState(const String &s) {
   for (int i = 0; i < STATE_COUNT; i++) {
-    if (s == stateNames[i]) return i;
+    if (s == stateNames[i]) {
+      return i;
+    }
   }
+
   return -1;
 }
 
 Source *findSource(const char *name, bool create) {
   Source *freeSlot = nullptr;
   for (auto &s : sources) {
-    if (s.used && strcmp(s.name, name) == 0) return &s;
-    if (!s.used && !freeSlot) freeSlot = &s;
+    if (s.used && strcmp(s.name, name) == 0) {
+      return &s;
+    }
+
+    if (!s.used && !freeSlot) {
+      freeSlot = &s;
+    }
   }
 
-  if (!create || !freeSlot) return nullptr;
+  if (!create || !freeSlot) {
+    return nullptr;
+  }
 
   freeSlot->used = true;
   strlcpy(freeSlot->name, name, sizeof(freeSlot->name));
@@ -116,7 +130,9 @@ bool touchSource(const String &name) {
   bool known = findSource(buf, false) != nullptr;
   Source *s = findSource(buf, true);
 
-  if (s) s->lastSeen = millis();
+  if (s) {
+    s->lastSeen = millis();
+  }
   dirty = true;
   return known;
 }
@@ -141,8 +157,11 @@ void handleStatus() {
 
   if (stateArg == "clear") {
     for (auto &e : entries) {
-      if (e.used && strcmp(e.source, src) == 0 && keyCovers(k, e.key)) e.used = false;
+      if (e.used && strcmp(e.source, src) == 0 && keyCovers(k, e.key)) {
+        e.used = false;
+      }
     }
+
     server.send(200, "text/plain", "ok\n");
     return;
   }
@@ -154,11 +173,18 @@ void handleStatus() {
 
   Entry *slot = nullptr;
   for (auto &e : entries) {
-    if (e.used && strcmp(e.source, src) == 0 && strcmp(e.key, k) == 0) { slot = &e; break; }
+    if (e.used && strcmp(e.source, src) == 0 && strcmp(e.key, k) == 0) {
+      slot = &e;
+      break;
+    }
   }
+
   for (auto &e : entries) {
-    if (!slot && !e.used) slot = &e;
+    if (!slot && !e.used) {
+      slot = &e;
+    }
   }
+
   if (!slot) {
     server.send(507, "text/plain", "full\n");
     return;
@@ -195,7 +221,9 @@ void handleReset() {
   copyAscii(src, sizeof(src), source);
 
   for (auto &e : entries) {
-    if (e.used && strcmp(e.source, src) == 0) e.used = false;
+    if (e.used && strcmp(e.source, src) == 0) {
+      e.used = false;
+    }
   }
 
   server.send(200, "text/plain", "ok\n");
@@ -204,14 +232,23 @@ void handleReset() {
 void handleDump() {
   String out;
   for (auto &s : sources) {
-    if (!s.used) continue;
+    if (!s.used) {
+      continue;
+    }
+
     out += String("source ") + s.name + " seen " + (millis() - s.lastSeen) / 1000 + " s ago\n";
   }
 
   for (auto &e : entries) {
-    if (!e.used) continue;
+    if (!e.used) {
+      continue;
+    }
+
     out += String(e.source) + " | " + e.session + " | " + e.app + " | " + stateNames[e.state];
-    if (e.kind[0]) out += String(" (") + e.kind + ")";
+    if (e.kind[0]) {
+      out += String(" (") + e.kind + ")";
+    }
+
     out += String(" | ") + e.msg + " | " + e.key + "\n";
   }
   server.send(200, "text/plain", out.isEmpty() ? String("empty\n") : out);
@@ -227,8 +264,11 @@ void setLed(uint8_t r, uint8_t g, uint8_t b) {
 void updateLed() {
   int best = STATE_COUNT;
   for (auto &e : entries) {
-    if (e.used && !isStale(e.source) && e.state < best) best = e.state;
+    if (e.used && !isStale(e.source) && e.state < best) {
+      best = e.state;
+    }
   }
+
   switch (best) {
     case BLOCKED: {
       // Pulse, so a waiting agent catches the eye.
@@ -254,7 +294,10 @@ void drawHeader() {
   tft.setTextDatum(MR_DATUM);
 
   for (int i = MAX_SOURCES - 1; i >= 0; i--) {
-    if (!sources[i].used) continue;
+    if (!sources[i].used) {
+      continue;
+    }
+
     bool stale = isStale(sources[i].name);
     tft.setTextColor(stale ? TFT_BLACK : TFT_WHITE, TFT_DARKGREY);
     tft.drawString(sources[i].name, x, HEADER_H / 2, 2);
@@ -267,7 +310,9 @@ void drawRows() {
   int order[MAX_ENTRIES], count = 0;
   for (int s = 0; s < STATE_COUNT; s++) {
     for (int i = 0; i < MAX_ENTRIES; i++) {
-      if (entries[i].used && entries[i].state == s) order[count++] = i;
+      if (entries[i].used && entries[i].state == s) {
+        order[count++] = i;
+      }
     }
   }
 
@@ -287,10 +332,12 @@ void drawRows() {
       tft.drawString(String("+") + (count - r) + " more", 4, y + ROW_H / 2, 2);
       break;
     }
+
     const Entry &e = entries[order[r]];
     bool stale = isStale(e.source);
     uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
     uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
+
     tft.fillRect(0, y + 2, 6, ROW_H - 4, chip);
     tft.setTextDatum(ML_DATUM);
     tft.setTextColor(chip, TFT_BLACK);
@@ -299,10 +346,15 @@ void drawRows() {
     tft.setTextColor(text, TFT_BLACK);
     String who = String(e.session) + " " + e.app;
     tft.drawString(who, 86, y + ROW_H / 2, 2);
+
     // The message gets what is left of the row, cut to fit.
     String msg = e.msg;
     int msgX = 86 + tft.textWidth(who + "  ", 2);
-    while (msg.length() > 0 && msgX + tft.textWidth(msg, 2) > SCREEN_W - 2) msg.remove(msg.length() - 1);
+
+    while (msg.length() > 0 && msgX + tft.textWidth(msg, 2) > SCREEN_W - 2) {
+      msg.remove(msg.length() - 1);
+    }
+
     tft.setTextColor(COLOR_GREY, TFT_BLACK);
     tft.drawString(msg, msgX, y + ROW_H / 2, 2);
   }
@@ -337,6 +389,7 @@ void setup() {
 void loop() {
   static bool wasConnected = false;
   bool connected = WiFi.status() == WL_CONNECTED;
+
   if (connected != wasConnected) {
     wasConnected = connected;
     if (connected) {
@@ -355,13 +408,18 @@ void loop() {
   // A source goes stale with time alone, without a request, so watch for it.
   static uint8_t staleMask = 0;
   uint8_t mask = 0;
+
   for (int i = 0; i < MAX_SOURCES; i++) {
-    if (sources[i].used && isStale(sources[i].name)) mask |= 1 << i;
+    if (sources[i].used && isStale(sources[i].name)) {
+      mask |= 1 << i;
+    }
   }
+
   if (mask != staleMask) {
     staleMask = mask;
     dirty = true;
   }
+
   if (dirty && millis() - lastDraw >= REDRAW_MS) {
     dirty = false;
     lastDraw = millis();
