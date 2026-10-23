@@ -9,13 +9,14 @@
 --
 -- On start, and whenever the display says it doesn't know this source
 --  (after a restart or a Wi-Fi gap), the watcher clears this source on the
---  display and sends the current status of every terminal. Between those it
+--  display and sends the current status of every pane. Between those it
 --  sends each change, and a heartbeat every 15 seconds so the display can
 --  tell when this server has gone quiet, e.g. a laptop that went to sleep
 
 local source = rex.args.source or "mac"
 local url = rex.args.url or "http://crd.local"
-local terminal = "com.superlogical.terminal"
+-- The Rex app that runs the terminal in each pane
+local terminalApp = "com.superlogical.terminal"
 
 -- Set when a send fails, so the next event sends everything instead
 local needResync = true
@@ -53,8 +54,8 @@ local function sessionLabel(sessionId)
   return view and view.label or "?"
 end
 
--- A terminal can report several records at once.
--- The key names the terminal and the record,
+-- A pane can report several records at once.
+-- The key names the pane and the record,
 --  so the display can clear them one by one or all at once.
 local function sendRecord(sessionId, blockId, recordId, record)
   post("/status", {
@@ -67,14 +68,14 @@ local function sendRecord(sessionId, blockId, recordId, record)
   })
 end
 
--- Sends the status of every terminal in one session
+-- Sends the status of every pane in one session
 local function sendSession(sessionId)
   rex.call("session.attach", { session_id = sessionId })
   local list = rex.session.list_blocks{ session_id = sessionId }
 
   for _, block in ipairs(list and list.blocks or {}) do
-    if block.creator_name == terminal then
-      local status = rex.block.call(terminal, "program_status", {
+    if block.creator_name == terminalApp then
+      local status = rex.block.call(terminalApp, "program_status", {
         session_id = sessionId,
         block_id = block.block_id,
       })
@@ -86,7 +87,7 @@ local function sendSession(sessionId)
   end
 end
 
--- Clears this source on the display and sends the status of every terminal
+-- Clears this source on the display and sends the status of every pane
 --  in every session
 local function resync()
   needResync = false
@@ -141,7 +142,7 @@ rex.on("session_label_changed", function(ctx, ev)
   sendSession(ctx.session_id)
 end)
 
--- A closed session takes its terminals with it; start over rather than
+-- A closed session takes its panes with it; start over rather than
 --  track which rows were in it
 rex.on("session_destroyed", function(ctx, ev)
   resync()
