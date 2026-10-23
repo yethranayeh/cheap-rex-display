@@ -74,7 +74,7 @@ rex do watcher/cheap-rex-display.lua --all
 - `source=<name>`: the name this Rex server gets on the display, `mac` by default.
 - `url=<address>`: the board's address, whcih is `http://crd.local` by default.
 
-On start, the script sends the current status of every tab. After that it sends each change, and a heartbeat every 15 seconds. Closing a tab removes its row.
+On start, the script sends the current status of every tab. After that it sends each change, and a heartbeat every 15 seconds. Closing a tab removes its row, and renaming a session renames it on the display too.
 
 The board keeps everything in memory, so a restart empties it. When that happens, or the board drops off Wi-Fi for a while, the next heartbeat notices and the script sends everything again, within about 15 seconds.
 

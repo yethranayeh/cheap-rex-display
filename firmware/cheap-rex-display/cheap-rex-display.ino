@@ -305,12 +305,36 @@ void drawHeader() {
   }
 }
 
+// Length of the terminal part of a key, before the '#'
+size_t terminalLength(const char *key) {
+  const char *hash = strchr(key, '#');
+  return hash ? hash - key : strlen(key);
+}
+
+bool sameTerminal(const Entry &a, const Entry &b) {
+  size_t length = terminalLength(a.key);
+  return strcmp(a.source, b.source) == 0
+      && length == terminalLength(b.key)
+      && strncmp(a.key, b.key, length) == 0;
+}
+
+bool listed(const int *order, int count, const Entry &e) {
+  for (int i = 0; i < count; i++) {
+    if (sameTerminal(entries[order[i]], e)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void drawRows() {
-  // Indices of used entries, most urgent first.
+  // Indices of used entries, most urgent first, one per terminal. A program
+  //  can report several records (opencode sends one for the terminal and one
+  //  for its chat session), which would otherwise show as duplicate rows.
   int order[MAX_ENTRIES], count = 0;
   for (int s = 0; s < STATE_COUNT; s++) {
     for (int i = 0; i < MAX_ENTRIES; i++) {
-      if (entries[i].used && entries[i].state == s) {
+      if (entries[i].used && entries[i].state == s && !listed(order, count, entries[i])) {
         order[count++] = i;
       }
     }

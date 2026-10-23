@@ -131,6 +131,16 @@ rex.on("block_closed", function(ctx, ev)
   post("/status", { key = ev.block_id, state = "clear" })
 end)
 
+-- Rows show the session's name, so send the renamed session's rows again
+rex.on("session_label_changed", function(ctx, ev)
+  if needResync then
+    resync()
+    return
+  end
+
+  sendSession(ctx.session_id)
+end)
+
 -- A closed session takes its terminals with it; start over rather than
 --  track which rows were in it
 rex.on("session_destroyed", function(ctx, ev)
