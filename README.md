@@ -38,9 +38,31 @@ Claudia says to use an absolute path, and add `:UploadSpeed=460800` to the `--fq
 
 Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** library folder instead, and again after each library update.
 
+## Firmware
+
+`firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first. The LED pulses red while an agent is blocked.
+
+1. Create a `secrets.h` file like shown in `secrets.h.example` and fill in your Wi-Fi credentials
+2. Compile and upload with the display setup from above. Find your port with `arduino-cli board list`
+
+```sh
+arduino-cli compile --fqbn esp32:esp32:esp32:UploadSpeed=460800 \
+  --build-property "compiler.cpp.extra_flags=-DUSER_SETUP_LOADED -include $PWD/config/TFT_eSPI/User_Setup.h" \
+  --upload -p <port> firmware/cheap-rex-display
+```
+
+Try it without Rex. The header shows the board's address once it is on Wi-Fi:
+
+```sh
+curl -4 -d source=test -d key=1 -d session=demo -d app=claude -d state=blocked -d kind=permission http://crd.local/status
+curl -4 http://crd.local/
+curl -4 -d source=test -d key=1 -d state=clear http://crd.local/status
+```
+
+`-4` is for macOS to expect IPv4 answer from the board without waiting for an IPv6 answer that CYD never even sends.
+
 ## Plan
 
-- Firmware for the CYD that joins your Wi-Fi and shows the status it is sent over HTTP.
 - A Rex Lua script that watches a Rex server for program status changes and sends them to the CYD.
 
 The display only shows status. Nothing on it can answer or approve anything in an agent session. Yet.
