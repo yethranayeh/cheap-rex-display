@@ -61,6 +61,21 @@ curl -4 -d source=test -d key=1 -d state=clear http://crd.local/status
 
 `-4` is for macOS to expect IPv4 answer from the board without waiting for an IPv6 answer that CYD never even sends.
 
+## Watcher
+
+`watcher/cheap-rex-display.lua` is a Rex Lua script. It listens for program status changes in every session of a Rex server and sends each one to the board. Run it in a Rex terminal and leave it open:
+
+```sh
+rex do watcher/cheap-rex-display.lua --all
+```
+
+`--all` delivers events from every session, not only the one the script runs in. Two optional arguments can be provided:
+
+- `source=<name>`: the name this Rex server gets on the display, `mac` by default.
+- `url=<address>`: the board's address, whcih is `http://crd.local` by default.
+
+The script sends changes only, so the display starts empty and fills up as agents change state. Closing a tab removes its row.
+
 ## Plan
 
 - A Rex Lua script that watches a Rex server for program status changes and sends them to the CYD.
