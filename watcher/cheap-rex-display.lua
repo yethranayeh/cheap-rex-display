@@ -7,11 +7,18 @@
 --  (default "mac"), and url, the display's address (default http://crd.local),
 --  as in: rex do watcher/cheap-rex-display.lua --all source=laptop
 --
--- The watcher only sends changes, so the display
---  starts out empty and shows what changes from then on
+-- On start, and whenever the display says it doesn't know this source
+--  (after a restart or a Wi-Fi gap), the watcher clears this source on the
+--  display and sends the current status of every terminal. Between those it
+--  sends each change, and a heartbeat every 15 seconds so the display can
+--  tell when this server has gone quiet, e.g. a laptop that went to sleep
 
 local source = rex.args.source or "mac"
 local url = rex.args.url or "http://crd.local"
+local terminal = "com.superlogical.terminal"
+
+-- Set when a send fails, so the next event sends everything instead
+local needResync = true
 
 -- POSTs form fields to the display. Returns the reply body, or nil when the
 --  display can't be reached.
@@ -30,6 +37,7 @@ local function post(path, fields)
 
   if r == nil or not r.ok then
     rex.log("cheap-rex-display: " .. path .. " failed: " .. tostring(err or r.stderr))
+    needResync = true
     return nil
   end
 
@@ -48,25 +56,74 @@ end
 -- A terminal can report several records at once.
 -- The key names the terminal and the record,
 --  so the display can clear them one by one or all at once.
-rex.on("terminal.program_status_changed", function(ctx, ev)
-  local record = ev.record
-
+local function sendRecord(sessionId, blockId, recordId, record)
   post("/status", {
-    key = ctx.block_id .. "#" .. (ev.id or ""),
-    session = sessionLabel(ctx.session_id),
+    key = blockId .. "#" .. (recordId or ""),
+    session = sessionLabel(sessionId),
     app = record.effective_app or record.app or "",
     state = record.state,
     kind = record.kind or "",
     msg = record.msg or "",
   })
+end
+
+-- Clears this source on the display and sends the status of every terminal
+--  in every session
+local function resync()
+  needResync = false
+  if post("/reset", {}) == nil then return end
+
+  local list = rex.call("session.list") or { sessions = {} }
+
+  for _, s in ipairs(list.sessions) do
+    rex.call("session.attach", { session_id = s.session_id })
+    local view = rex.session.view{ session_id = s.session_id }
+
+    for _, w in ipairs(view and view.windows or {}) do
+      for _, layer in ipairs(w.layers or {}) do
+        for _, b in ipairs(layer.blocks or {}) do
+          if b.creator_name == terminal then
+            local st = rex.block.call(terminal, "program_status", {
+              session_id = s.session_id, block_id = b.block_id,
+            })
+
+            for _, record in ipairs(st and st.records or {}) do
+              sendRecord(s.session_id, b.block_id, record.id, record)
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+rex.on("terminal.program_status_changed", function(ctx, ev)
+  if needResync then return resync() end
+  sendRecord(ctx.session_id, ctx.block_id, ev.id, ev.record)
 end)
 
 rex.on("terminal.program_status_removed", function(ctx, ev)
+  if needResync then return resync() end
+
   for _, id in ipairs(ev.ids or {}) do
     post("/status", { key = ctx.block_id .. "#" .. id, state = "clear" })
   end
 end)
 
 rex.on("block_closed", function(ctx, ev)
+  if needResync then return resync() end
   post("/status", { key = ev.block_id, state = "clear" })
 end)
+
+-- A closed session takes its terminals with it; start over rather than
+--  track which rows were in it
+rex.on("session_destroyed", function(ctx, ev)
+  resync()
+end)
+
+rex.every(15, function()
+  local reply = post("/heartbeat", {})
+  if needResync or (reply and reply:match("^unknown")) then resync() end
+end)
+
+resync()

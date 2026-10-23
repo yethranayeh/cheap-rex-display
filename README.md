@@ -74,7 +74,11 @@ rex do watcher/cheap-rex-display.lua --all
 - `source=<name>`: the name this Rex server gets on the display, `mac` by default.
 - `url=<address>`: the board's address, whcih is `http://crd.local` by default.
 
-The script sends changes only, so the display starts empty and fills up as agents change state. Closing a tab removes its row.
+On start, the script sends the current status of every tab. After that it sends each change, and a heartbeat every 15 seconds. Closing a tab removes its row.
+
+The board keeps everything in memory, so a restart empties it. When that happens, or the board drops off Wi-Fi for a while, the next heartbeat notices and the script sends everything again, within about 15 seconds.
+
+If a Rex server goes quiet for 60 seconds, for example a laptop that went to sleep, its rows turn grey and its name in the header turns black. Grey rows don't light the LED.
 
 ## Plan
 

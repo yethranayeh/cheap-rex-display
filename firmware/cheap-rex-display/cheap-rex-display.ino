@@ -10,7 +10,13 @@
 //                 source names the Rex server, key the terminal.
 //                 state is idle, working, done, blocked, error or clear.
 //                 clear removes key and every key below it (key#..., key/...).
+//   POST /heartbeat  source. Replies "known", or "unknown" when this board has
+//                 nothing from that source (after a restart), so the watcher
+//                 sends everything again.
+//   POST /reset   source. Drops everything from that source.
 //   GET  /        plain-text dump of what the display holds.
+// A source that sends nothing for STALE_MS is shown grey and ignored by the
+//  LED, so a sleeping laptop leaves no "working" behind.
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -30,6 +36,8 @@
 #define HEADER_H 24
 #define ROW_H 24
 #define MAX_ENTRIES 32
+#define MAX_SOURCES 4
+#define STALE_MS 60000
 #define REDRAW_MS 200
 
 #define COLOR_GREY 0x7BEF
@@ -50,7 +58,14 @@ struct Entry {
   State state;
 };
 
+struct Source {
+  bool used;
+  char name[16];
+  unsigned long lastSeen;
+};
+
 Entry entries[MAX_ENTRIES];
+Source sources[MAX_SOURCES];
 TFT_eSPI tft = TFT_eSPI();
 WebServer server(80);
 bool dirty = true;
@@ -74,6 +89,38 @@ int parseState(const String &s) {
   return -1;
 }
 
+Source *findSource(const char *name, bool create) {
+  Source *freeSlot = nullptr;
+  for (auto &s : sources) {
+    if (s.used && strcmp(s.name, name) == 0) return &s;
+    if (!s.used && !freeSlot) freeSlot = &s;
+  }
+
+  if (!create || !freeSlot) return nullptr;
+
+  freeSlot->used = true;
+  strlcpy(freeSlot->name, name, sizeof(freeSlot->name));
+  return freeSlot;
+}
+
+bool isStale(const char *name) {
+  Source *s = findSource(name, false);
+  return !s || millis() - s->lastSeen > STALE_MS;
+}
+
+// Marks a source as alive. Returns false if it was unknown before.
+bool touchSource(const String &name) {
+  char buf[16];
+  copyAscii(buf, sizeof(buf), name);
+
+  bool known = findSource(buf, false) != nullptr;
+  Source *s = findSource(buf, true);
+
+  if (s) s->lastSeen = millis();
+  dirty = true;
+  return known;
+}
+
 // True if key is parent itself or sits below it.
 bool keyCovers(const char *parent, const char *key) {
   size_t n = strlen(parent);
@@ -86,10 +133,11 @@ void handleStatus() {
     server.send(400, "text/plain", "source, key and state are required\n");
     return;
   }
+
+  touchSource(source);
   char src[16], k[80];
   copyAscii(src, sizeof(src), source);
   copyAscii(k, sizeof(k), key);
-  dirty = true;
 
   if (stateArg == "clear") {
     for (auto &e : entries) {
@@ -126,8 +174,40 @@ void handleStatus() {
   server.send(200, "text/plain", "ok\n");
 }
 
+void handleHeartbeat() {
+  if (server.arg("source").isEmpty()) {
+    server.send(400, "text/plain", "source is required\n");
+    return;
+  }
+
+  server.send(200, "text/plain", touchSource(server.arg("source")) ? "known\n" : "unknown\n");
+}
+
+void handleReset() {
+  String source = server.arg("source");
+  if (source.isEmpty()) {
+    server.send(400, "text/plain", "source is required\n");
+    return;
+  }
+
+  touchSource(source);
+  char src[16];
+  copyAscii(src, sizeof(src), source);
+
+  for (auto &e : entries) {
+    if (e.used && strcmp(e.source, src) == 0) e.used = false;
+  }
+
+  server.send(200, "text/plain", "ok\n");
+}
+
 void handleDump() {
   String out;
+  for (auto &s : sources) {
+    if (!s.used) continue;
+    out += String("source ") + s.name + " seen " + (millis() - s.lastSeen) / 1000 + " s ago\n";
+  }
+
   for (auto &e : entries) {
     if (!e.used) continue;
     out += String(e.source) + " | " + e.session + " | " + e.app + " | " + stateNames[e.state];
@@ -147,7 +227,7 @@ void setLed(uint8_t r, uint8_t g, uint8_t b) {
 void updateLed() {
   int best = STATE_COUNT;
   for (auto &e : entries) {
-    if (e.used && e.state < best) best = e.state;
+    if (e.used && !isStale(e.source) && e.state < best) best = e.state;
   }
   switch (best) {
     case BLOCKED: {
@@ -169,6 +249,17 @@ void drawHeader() {
   tft.setTextDatum(ML_DATUM);
   String text = WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting...");
   tft.drawString(text, 4, HEADER_H / 2, 2);
+  // Sources at the right: white while live, black when stale.
+  int x = SCREEN_W - 4;
+  tft.setTextDatum(MR_DATUM);
+
+  for (int i = MAX_SOURCES - 1; i >= 0; i--) {
+    if (!sources[i].used) continue;
+    bool stale = isStale(sources[i].name);
+    tft.setTextColor(stale ? TFT_BLACK : TFT_WHITE, TFT_DARKGREY);
+    tft.drawString(sources[i].name, x, HEADER_H / 2, 2);
+    x -= tft.textWidth(sources[i].name, 2) + 8;
+  }
 }
 
 void drawRows() {
@@ -197,13 +288,15 @@ void drawRows() {
       break;
     }
     const Entry &e = entries[order[r]];
-    uint16_t chip = stateColors[e.state];
+    bool stale = isStale(e.source);
+    uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
+    uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
     tft.fillRect(0, y + 2, 6, ROW_H - 4, chip);
     tft.setTextDatum(ML_DATUM);
     tft.setTextColor(chip, TFT_BLACK);
     String label = e.state == BLOCKED && e.kind[0] ? String(e.kind) : String(stateNames[e.state]);
     tft.drawString(label, 10, y + ROW_H / 2, 2);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextColor(text, TFT_BLACK);
     String who = String(e.session) + " " + e.app;
     tft.drawString(who, 86, y + ROW_H / 2, 2);
     // The message gets what is left of the row, cut to fit.
@@ -234,6 +327,8 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   server.on("/status", HTTP_POST, handleStatus);
+  server.on("/heartbeat", HTTP_POST, handleHeartbeat);
+  server.on("/reset", HTTP_POST, handleReset);
   server.on("/", HTTP_GET, handleDump);
   server.begin();
   Serial.println("cheap-rex-display started");
@@ -257,6 +352,16 @@ void loop() {
   server.handleClient();
   updateLed();
 
+  // A source goes stale with time alone, without a request, so watch for it.
+  static uint8_t staleMask = 0;
+  uint8_t mask = 0;
+  for (int i = 0; i < MAX_SOURCES; i++) {
+    if (sources[i].used && isStale(sources[i].name)) mask |= 1 << i;
+  }
+  if (mask != staleMask) {
+    staleMask = mask;
+    dirty = true;
+  }
   if (dirty && millis() - lastDraw >= REDRAW_MS) {
     dirty = false;
     lastDraw = millis();
