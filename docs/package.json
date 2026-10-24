@@ -1,0 +1,17 @@
+{
+	"name": "cheap-rex-display-docs",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --bun astro dev --host 127.0.0.1",
+		"build": "bun --bun astro build",
+		"preview": "bun --bun astro preview --host 127.0.0.1",
+		"deploy": "bun run build && bunx wrangler pages deploy"
+	},
+	"dependencies": {
+		"astro": "7.3.5"
+	},
+	"devDependencies": {
+		"wrangler": "4.147.0"
+	}
+}

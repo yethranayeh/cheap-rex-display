@@ -1,0 +1,181 @@
+---
+import banner from "../../../assets/branding/banner-dark.svg?raw";
+
+// The banner is drawn in one colour; let it follow the text colour
+const wordmark = banner.replaceAll("#f0f6fc", "currentColor");
+const repo = "https://github.com/yethranayeh/cheap-rex-display";
+const description =
+	"A Cheap Yellow Display that shows what your coding agents are doing in Rex: Claude Code, opencode and more. The LED blinks when one needs you.";
+const media = "https://res.cloudinary.com/drwbqceye/video/upload";
+// The uploads are HEVC; vc_h264 is Cloudinary's copy that every browser plays
+const videos = [
+	{
+		id: "v1792853147/IMG_7058-lowered-m_iwxxjm",
+		w: 270,
+		h: 480,
+		alt: "opencode going from idle to working to permission and back, with the LED following",
+		caption: "An agent goes from idle to working to waiting for permission, and the LED follows."
+	},
+	{
+		id: "v1792853141/IMG_7045-lowered-m_xkpl6m",
+		w: 720,
+		h: 405,
+		alt: "opencode asks for permission on the Mac, and the board shows it on top with the LED turning red",
+		caption: "The agent that waits for you comes to the top."
+	},
+	{
+		id: "v1792853143/IMG_7075-lowered-m_sphvxd",
+		w: 720,
+		h: 405,
+		alt: "Tapping rows on the board, and the Rex app on the monitor behind it switching to each one's pane, including one on another server",
+		caption: "Tap a row and Rex brings its pane to the front, even on another server."
+	}
+];
+---
+
+<!doctype html>
+<html lang='en'>
+	<head>
+		<meta charset='utf-8' />
+		<meta name='viewport' content='width=device-width, initial-scale=1' />
+		<title>Cheap Rex Display: a status screen for your coding agents</title>
+		<meta name='description' content={description} />
+		<meta property='og:title' content='Cheap Rex Display' />
+		<meta property='og:description' content={description} />
+		<link rel='preconnect' href='https://fonts.googleapis.com' />
+		<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin />
+		<link
+			rel='stylesheet'
+			href='https://fonts.googleapis.com/css2?family=Recursive:wght,CASL,MONO@300..1000,0..1,0..1&display=swap'
+		/>
+	</head>
+	<body>
+		<main>
+			<h1 class='wordmark' aria-label='Cheap Rex Display' set:html={wordmark} />
+
+			<p class='lead'>
+				A cheap <a href='https://www.superlogical.com/rex/docs/installation'>Rex</a> display for coding agents. It shows the
+				agents running in your Rex sessions on a Cheap Yellow Display, and its LED tells you when one waits for you.
+			</p>
+			<p><a class='github' href={repo}>Code and setup on GitHub</a></p>
+
+			{
+				videos.map((v) => (
+					<figure>
+						<video
+							src={`${media}/vc_h264/${v.id}.mp4`}
+							poster={`${media}/so_0/${v.id}.jpg`}
+							width={v.w}
+							height={v.h}
+							autoplay
+							muted
+							loop
+							playsinline
+							aria-label={v.alt}
+						/>
+						<figcaption>{v.caption}</figcaption>
+					</figure>
+				))
+			}
+		</main>
+
+		<footer>
+			<p>Experimental work in progress. MIT licensed.</p>
+			<p>Not affiliated with or endorsed by Superlogical. The Rex drawing is meant as a tribute.</p>
+		</footer>
+	</body>
+</html>
+
+<style is:global>
+	/* Lavender shadow */
+	:root {
+		--bg: #1c1a34;
+		--text: #ffffff;
+		--muted: #b7b7d7;
+		--faint: #8584a5;
+		--line: #444168;
+		--mint: #91ffc6;
+		color-scheme: dark;
+	}
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+	* {
+		font-variation-settings:
+			"CASL" 0.25,
+			"MONO" 0;
+	}
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--text);
+		font-family: "Recursive", ui-sans-serif, system-ui, sans-serif;
+		line-height: 1.6;
+		-webkit-font-smoothing: antialiased;
+	}
+	main,
+	footer {
+		max-width: 720px;
+		margin: 0 auto;
+		padding: 0 16px;
+	}
+	main {
+		padding-top: 48px;
+	}
+	a {
+		color: var(--mint);
+		text-decoration-thickness: 2px;
+		text-underline-offset: 3px;
+	}
+	a:hover {
+		color: var(--text);
+		text-decoration-color: var(--mint);
+	}
+	.wordmark {
+		margin: 0 auto 32px;
+		max-width: 560px;
+		color: var(--text);
+	}
+	.wordmark svg {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+	.lead {
+		font-size: 1.25rem;
+		line-height: 1.45;
+		margin: 0 0 16px;
+	}
+	.github {
+		font-weight: 650;
+	}
+	figure {
+		margin: 48px 0 0;
+		text-align: center;
+	}
+	figure video {
+		display: block;
+		margin: 0 auto;
+		max-width: 100%;
+		height: auto;
+		border-radius: 14px;
+		background: #000;
+	}
+	figcaption {
+		color: var(--muted);
+		font-size: 0.875rem;
+		margin-top: 8px;
+	}
+	footer {
+		margin-top: 64px;
+		padding-bottom: 48px;
+		border-top: 1px solid var(--line);
+		color: var(--faint);
+		font-size: 0.875rem;
+	}
+	footer p {
+		margin: 12px 0 0;
+	}
+</style>
