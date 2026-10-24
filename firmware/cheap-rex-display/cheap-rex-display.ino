@@ -15,6 +15,7 @@
 //                 sends everything again.
 //   POST /reset   source. Drops everything from that source.
 //   GET  /        plain-text dump of what the display holds.
+//   GET  /screen.bmp  what the screen shows, read back from the display.
 // A source that sends nothing for STALE_MS is shown grey and ignored by the
 //  LED, so a sleeping laptop leaves no "working" behind.
 
@@ -254,6 +255,43 @@ void handleDump() {
   server.send(200, "text/plain", out.isEmpty() ? String("empty\n") : out);
 }
 
+void putLE(uint8_t *p, uint32_t v, int bytes) {
+  for (int i = 0; i < bytes; i++) {
+    p[i] = v >> (8 * i);
+  }
+}
+
+// Reads the screen back from the display, one line at a time, so no
+//  framebuffer is needed. BMP stores the bottom line first, in BGR order.
+void handleScreen() {
+  const uint32_t lineBytes = SCREEN_W * 3;  // 960, already a multiple of 4
+  const uint32_t pixelBytes = lineBytes * SCREEN_H;
+  uint8_t header[54] = {'B', 'M'};
+  putLE(header + 2, 54 + pixelBytes, 4);
+  putLE(header + 10, 54, 4);                // pixel data offset
+  putLE(header + 14, 40, 4);                // BITMAPINFOHEADER size
+  putLE(header + 18, SCREEN_W, 4);
+  putLE(header + 22, SCREEN_H, 4);
+  putLE(header + 26, 1, 2);                 // planes
+  putLE(header + 28, 24, 2);                // bits per pixel
+  putLE(header + 34, pixelBytes, 4);
+
+  server.setContentLength(sizeof(header) + pixelBytes);
+  server.send(200, "image/bmp", "");
+  server.sendContent((const char *)header, sizeof(header));
+
+  static uint8_t line[SCREEN_W * 3];
+  for (int y = SCREEN_H - 1; y >= 0; y--) {
+    tft.readRectRGB(0, y, SCREEN_W, 1, line);
+    for (int x = 0; x < SCREEN_W; x++) {
+      uint8_t r = line[x * 3];
+      line[x * 3] = line[x * 3 + 2];
+      line[x * 3 + 2] = r;
+    }
+    server.sendContent((const char *)line, lineBytes);
+  }
+}
+
 void setLed(uint8_t r, uint8_t g, uint8_t b) {
   // Active low: a duty of 255 is off.
   ledcWrite(LED_RED, 255 - r);
@@ -406,6 +444,7 @@ void setup() {
   server.on("/heartbeat", HTTP_POST, handleHeartbeat);
   server.on("/reset", HTTP_POST, handleReset);
   server.on("/", HTTP_GET, handleDump);
+  server.on("/screen.bmp", HTTP_GET, handleScreen);
   server.begin();
   Serial.println("cheap-rex-display started");
 }

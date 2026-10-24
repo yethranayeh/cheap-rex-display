@@ -129,6 +129,19 @@ The header lists every source the board has heard from, up to four.
 - **A stopped source stays in the header**: the board forgets sources only when it restarts.
 - **Your own Rex script fails with "stream is not attached to session"**: `--all` delivers events from every session, but viewing another session needs `rex.call("session.attach", { session_id = ... })` first. The watcher does this.
 
+## Development
+
+### Screenshots
+
+The board reads its screen back from the display and serves it as a 320×240 BMP:
+
+```sh
+curl -4 -o screen.bmp http://crd.local/screen.bmp
+sips -s format png screen.bmp --out screen.png
+```
+
+You can use it to let your agent take a look at the board, because sometimes looking at it yourself is not enough. Team work makes the dream work!
+
 ## Plan
 
 - A Rex Lua script that watches a Rex server for program status changes and sends them to the CYD.
