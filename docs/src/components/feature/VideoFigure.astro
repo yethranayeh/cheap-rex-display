@@ -1,0 +1,30 @@
+---
+import { site } from "../../config/site";
+
+interface Props {
+	/** Cloudinary public id */
+	id: string;
+	width: number;
+	height: number;
+	alt: string;
+	caption: string;
+}
+
+const { id, width, height, alt, caption } = Astro.props;
+---
+
+<figure class='mt-12 text-center'>
+	{/* The uploads are HEVC, so vc_h264 is used for browser compatibility */}
+	<video
+		class='mx-auto block h-auto max-w-full rounded-lg bg-ink'
+		src={`${site.media}/vc_h264/${id}.mp4`}
+		poster={`${site.media}/so_0/${id}.jpg`}
+		width={width}
+		height={height}
+		autoplay
+		muted
+		loop
+		playsinline
+		aria-label={alt}></video>
+	<figcaption class='mt-2 text-sm text-muted-foreground'>{caption}</figcaption>
+</figure>

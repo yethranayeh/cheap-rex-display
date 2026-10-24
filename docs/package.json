@@ -6,12 +6,18 @@
 		"dev": "bun --bun astro dev --host 127.0.0.1",
 		"build": "bun --bun astro build",
 		"preview": "bun --bun astro preview --host 127.0.0.1",
+		"check": "astro check && uv run scripts/check-contrast.py && bun run build && uv run scripts/check-head.py",
 		"deploy": "bun run build && bunx wrangler pages deploy"
 	},
 	"dependencies": {
-		"astro": "7.3.5"
+		"@astrojs/sitemap": "3.7.4",
+		"@tailwindcss/vite": "4.3.3",
+		"astro": "7.3.5",
+		"tailwindcss": "4.3.3"
 	},
 	"devDependencies": {
+		"@astrojs/check": "0.9.12",
+		"typescript": "6.0.3",
 		"wrangler": "4.147.0"
 	}
 }

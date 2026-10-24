@@ -1,0 +1,44 @@
+---
+import { defaultPalette, paletteKey, palettes } from "../../config/palettes";
+---
+
+<fieldset class='flex items-center gap-3' data-palette-switcher>
+	<legend class='sr-only'>Palette</legend>
+	<span class='text-faint' aria-hidden='true'>Palette</span>
+	{
+		palettes.map((p) => (
+			<label class='cursor-pointer' title={p.name}>
+				<input class='peer sr-only' type='radio' name='palette' value={p.id} checked={p.id === defaultPalette} />
+				<span class='block rounded-full p-0.5 ring-1 ring-transparent transition-shadow peer-checked:ring-2 peer-checked:ring-foreground peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring hover:ring-border'>
+					<span
+						class='flex size-6 items-center justify-center rounded-full border border-border bg-background'
+						data-theme={p.id}>
+						<span class='size-2 rounded-full bg-primary' />
+					</span>
+				</span>
+				<span class='sr-only'>{p.name}</span>
+			</label>
+		))
+	}
+</fieldset>
+
+{
+	/*
+	Inline and right after the markup, so the current palette is marked before
+	the footer paints.
+	The <head> script has already applied it.
+*/
+}
+<script is:inline define:vars={{ paletteKey }}>
+	const root = document.documentElement;
+	const switcher = document.querySelector("[data-palette-switcher]");
+	for (const input of switcher.querySelectorAll("input")) {
+		input.checked = input.value === root.dataset.theme;
+		input.addEventListener("change", () => {
+			root.dataset.theme = input.value;
+			try {
+				localStorage.setItem(paletteKey, input.value);
+			} catch {}
+		});
+	}
+</script>

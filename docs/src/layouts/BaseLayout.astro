@@ -1,0 +1,64 @@
+---
+import "../styles/global.css";
+
+import { Font } from "astro:assets";
+
+import { site } from "../config/site";
+import { defaultPalette, paletteKey, palettes } from "../config/palettes";
+
+interface Props {
+	title?: string;
+	description?: string;
+	noindex?: boolean;
+}
+
+const { title, description = site.description, noindex = false } = Astro.props;
+const fullTitle = title ? `${title} | ${site.name}` : site.title;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const socialImage = new URL(site.socialImage.path, Astro.site);
+const paletteIds = palettes.map((p) => p.id);
+---
+
+<!doctype html>
+<html lang={site.lang} data-theme={defaultPalette}>
+	<head>
+		<meta charset='utf-8' />
+		<meta name='viewport' content='width=device-width, initial-scale=1' />
+		{
+			/*
+			Runs before any stylesheet is parsed, so the saved palette is in place for the first paint.
+			Storage can be blocked, and then the default stays.
+		*/
+		}
+		<script is:inline define:vars={{ paletteKey, paletteIds }}>
+			try {
+				const saved = localStorage.getItem(paletteKey);
+				if (paletteIds.includes(saved)) {
+					document.documentElement.dataset.theme = saved;
+				}
+			} catch {}
+		</script>
+		<title>{fullTitle}</title>
+		<meta name='description' content={description} />
+		{noindex ? <meta name='robots' content='noindex' /> : <link rel='canonical' href={canonical} />}
+
+		<meta property='og:type' content='website' />
+		<meta property='og:site_name' content={site.name} />
+		<meta property='og:title' content={title ?? site.name} />
+		<meta property='og:description' content={description} />
+		<meta property='og:url' content={canonical} />
+		<meta property='og:image' content={socialImage} />
+		<meta property='og:image:width' content={String(site.socialImage.width)} />
+		<meta property='og:image:height' content={String(site.socialImage.height)} />
+		<meta name='twitter:card' content='summary_large_image' />
+		<meta name='twitter:title' content={title ?? site.name} />
+		<meta name='twitter:description' content={description} />
+		<meta name='twitter:image' content={socialImage} />
+
+		<Font cssVariable='--font-recursive' preload />
+		<slot name='head' />
+	</head>
+	<body class='bg-background font-sans text-base text-foreground antialiased'>
+		<slot />
+	</body>
+</html>

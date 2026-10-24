@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+/*
+ * Semantic tokens. The values here are the default lavender shadow palette.
+ * The other palettes override them by [data-theme] in the base layer below.
+ * Tailwind's own colours, fonts, sizes and radii are dropped so pages and
+ * 	components can only use these.
+ */
+@theme {
+	--color-*: initial;
+	--font-*: initial;
+	--text-*: initial;
+	--radius-*: initial;
+
+	/* Ground */
+	--color-background: #1c1a34;
+	--color-foreground: #ffffff;
+	--color-surface: #262246;
+	--color-surface-raised: #2f2b54;
+	--color-border: #444168;
+	--color-muted-foreground: #b7b7d7;
+	--color-faint: #8584a5;
+	--color-ink: #09071a;
+	--color-code: #151229;
+	--color-code-foreground: #ffffff;
+
+	/* Accents */
+	--color-mint: #91ffc6;
+	--color-lavender: #a291ff;
+	--color-coral: #ff7770;
+	--color-amber: #ffcd70;
+	--color-pink: #ff7ac8;
+	/* Auth on the board; halfway between coral and amber */
+	--color-orange: #ffa270;
+
+	--color-primary: #91ffc6;
+	--color-primary-foreground: #09071a;
+
+	/* Type: Recursive, slightly casual everywhere; the MONO axis makes it Recursive Mono */
+	--font-sans: var(--font-recursive);
+	--font-sans--font-variation-settings: "CASL" 0.25, "MONO" 0;
+	--font-mono: var(--font-recursive);
+	--font-mono--font-variation-settings: "CASL" 0.25, "MONO" 1;
+
+	/* 1.25 ratio from 16px, with 14px in between for small print */
+	--text-xs: 0.75rem;
+	--text-xs--line-height: 1.5;
+	--text-sm: 0.875rem;
+	--text-sm--line-height: 1.6;
+	--text-base: 1rem;
+	--text-base--line-height: 1.6;
+	--text-lg: 1.25rem;
+	--text-lg--line-height: 1.45;
+	--text-xl: 1.5625rem;
+	--text-xl--line-height: 1.3;
+	--text-2xl: 1.953rem;
+	--text-2xl--line-height: 1.2;
+	--text-3xl: 2.441rem;
+	--text-3xl--line-height: 1.15;
+	--text-4xl: 3.052rem;
+	--text-4xl--line-height: 1.1;
+
+	/* 4px steps: p-1 is 4px, p-4 is 16px */
+	--spacing: 0.25rem;
+
+	/* Pill is rounded-full */
+	--radius-sm: 0.25rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.875rem;
+
+	--container-page: 45rem;
+}
+
+/*
+ * The shadcn names are here so its components can be added later unchanged.
+ */
+@theme inline {
+	--color-card: var(--color-surface);
+	--color-card-foreground: var(--color-foreground);
+	--color-popover: var(--color-surface-raised);
+	--color-popover-foreground: var(--color-foreground);
+	--color-muted: var(--color-surface-raised);
+	--color-secondary: var(--color-surface-raised);
+	--color-secondary-foreground: var(--color-foreground);
+	--color-accent: var(--color-surface-raised);
+	--color-accent-foreground: var(--color-foreground);
+	--color-destructive: var(--color-coral);
+	--color-input: var(--color-border);
+	--color-ring: var(--color-primary);
+
+	/* Agent states, as the board's LED shows them */
+	--color-state-working: var(--color-lavender);
+	--color-state-done: var(--color-mint);
+	--color-state-permission: var(--color-coral);
+	--color-state-question: var(--color-amber);
+	--color-state-auth: var(--color-orange);
+	--color-state-error: var(--color-pink);
+	--color-state-idle: var(--color-faint);
+	--color-state-stale: var(--color-faint);
+}
+
+@layer base {
+	/*
+	 * Palettes. Lavender shadow repeats the defaults above so that an element
+	 * 	inside another palette can show it, like its dot in the switcher.
+	 * The contrast script fails if the two drift apart.
+	 */
+	/* The dark ones share the text and the pastel accents */
+	[data-theme="lavender-shadow"],
+	[data-theme="plum"],
+	[data-theme="graphite"],
+	[data-theme="indigo"] {
+		--color-foreground: #ffffff;
+		--color-mint: #91ffc6;
+		--color-lavender: #a291ff;
+		--color-coral: #ff7770;
+		--color-amber: #ffcd70;
+		--color-pink: #ff7ac8;
+		--color-orange: #ffa270;
+		--color-primary: #91ffc6;
+	}
+
+	[data-theme="lavender-shadow"] {
+		--color-background: #1c1a34;
+		--color-surface: #262246;
+		--color-surface-raised: #2f2b54;
+		--color-border: #444168;
+		--color-muted-foreground: #b7b7d7;
+		--color-faint: #8584a5;
+		--color-ink: #09071a;
+		--color-code: #151229;
+		--color-primary-foreground: #09071a;
+	}
+
+	/* Plum is inspired by Paper Clover's blog: https://paperclover.net/blog/webdev/one-year-next-app-router */
+	[data-theme="plum"] {
+		--color-background: #271a30;
+		--color-surface: #322240;
+		--color-surface-raised: #3d2b4d;
+		--color-border: #54405f;
+		--color-muted-foreground: #c3b3d0;
+		/* #8f7f9e was 4.46:1 on the ground */
+		--color-faint: #90809f;
+		--color-ink: #120a17;
+		--color-code: #1d1324;
+		--color-primary-foreground: #120a17;
+	}
+
+	[data-theme="graphite"] {
+		--color-background: #17191e;
+		--color-surface: #202329;
+		--color-surface-raised: #2a2d33;
+		--color-border: #3e4148;
+		--color-muted-foreground: #b7bac0;
+		--color-faint: #85888e;
+		--color-ink: #050609;
+		--color-code: #101215;
+		--color-primary-foreground: #050609;
+	}
+
+	[data-theme="indigo"] {
+		--color-background: #141c38;
+		--color-surface: #1a254a;
+		--color-surface-raised: #222e59;
+		--color-border: #37446d;
+		--color-muted-foreground: #aebad8;
+		--color-faint: #7b87a7;
+		--color-ink: #04081c;
+		--color-code: #0d142c;
+		--color-primary-foreground: #04081c;
+	}
+
+	/* The light one: the pastel accents become inks */
+	[data-theme="paper"] {
+		color-scheme: light;
+		--color-background: #f5efe3;
+		--color-foreground: #271a30;
+		--color-surface: #fffaf1;
+		--color-surface-raised: #ebe2d2;
+		--color-border: #d6c9b4;
+		--color-muted-foreground: #5f4e6c;
+		/* #7a6a86 was 4.33:1 on the ground */
+		--color-faint: #776783;
+		--color-ink: #271a30;
+		--color-code: #211e29;
+		--color-mint: #0f7a4b;
+		--color-lavender: #5a43d1;
+		--color-coral: #c2352b;
+		--color-amber: #8a5a00;
+		--color-pink: #b0236f;
+		--color-orange: #a64815;
+		--color-primary: #0f7a4b;
+		/* Paper's ink is its text colour, too dark on the mint ink */
+		--color-primary-foreground: #fffaf1;
+	}
+
+	/* Code blocks stay dark on every palette, so on paper they take the pastels back */
+	[data-theme="paper"] pre {
+		color-scheme: dark;
+		--color-foreground: #ffffff;
+		--color-muted-foreground: #b7b7d7;
+		--color-faint: #8584a5;
+		--color-mint: #91ffc6;
+		--color-lavender: #a291ff;
+		--color-coral: #ff7770;
+		--color-amber: #ffcd70;
+		--color-pink: #ff7ac8;
+		--color-orange: #ffa270;
+		--color-primary: #91ffc6;
+		--color-primary-foreground: #09071a;
+	}
+
+	html {
+		background-color: var(--color-background);
+		color: var(--color-foreground);
+	}
+
+	pre {
+		background-color: var(--color-code);
+		color: var(--color-code-foreground);
+	}
+}

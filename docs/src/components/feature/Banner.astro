@@ -1,0 +1,10 @@
+---
+import banner from "../../../../assets/branding/banner.svg?raw";
+import { site } from "../../config/site";
+---
+
+<h1
+	class='mx-auto mb-8 max-w-140 text-foreground [&_svg]:block [&_svg]:h-auto [&_svg]:w-full'
+	aria-label={site.name}
+	set:html={banner}
+/>
