@@ -2,7 +2,11 @@
 
 <p align="center"><img title="The skillful retracing of the Rex icon, carefully handcrafted on paper." src="assets/cheap-rex-display-logo.jpg" alt="Superlogical's Rex, drawn by hand in pen on paper" width="320"></p>
 
-A cheap [Rex](https://www.superlogical.com/rex/docs/installation) display for coding agents. It shows the agents running in Rex sessions on a Cheap Yellow Display (CYD) device. When an agent stops to wait for you, the LED pulses red so you know your agent is in big trouble or just has a few blockers that you need to clear.
+A cheap [Rex](https://www.superlogical.com/rex/docs/installation) display for coding agents. It shows the agents running in Rex sessions on a Cheap Yellow Display (CYD) device.
+
+When an agent stops to wait for you, the LED pulses red so you know your agent is in big trouble or just has a few blockers that you need to clear:
+
+<p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852978/opencode-status-cycle_r6f1ad.webp" alt="opencode going from idle to working to permission and back, with the LED following" width="320"></p>
 
 Experimental work in progress.
 
