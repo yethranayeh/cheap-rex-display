@@ -625,6 +625,11 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
   WiFi.setAutoReconnect(true);
+  // The reason codes tell a weak signal (201: no AP found, 15: handshake timeout)
+  //  from a wrong password (2, 15 on first join) on the serial port.
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    Serial.printf("Wi-Fi lost, reason %d\n", info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   server.on("/status", HTTP_POST, handleStatus);
@@ -637,9 +642,52 @@ void setup() {
   Serial.println("cheap-rex-display started");
 }
 
+// A line a minute on the serial port, to tell a lost Wi-Fi link from a stuck
+//  server when the board stops answering.
+void logHealth() {
+  static unsigned long lastLog = 0;
+  if (millis() - lastLog < 60000) {
+    return;
+  }
+
+  lastLog = millis();
+  int taps = 0;
+  for (auto &t : tapClients) {
+    taps += t.client.connected();
+  }
+
+  Serial.printf("Health: up %lu s, Wi-Fi %d, RSSI %d dBm, heap %u, tap streams %d\n",
+                millis() / 1000, WiFi.status(), WiFi.RSSI(), ESP.getFreeHeap(), taps);
+}
+
 void loop() {
   static bool wasConnected = false;
   bool connected = WiFi.status() == WL_CONNECTED;
+
+  // Auto-reconnect can give up after a failed join and leave the link idle
+  //  for good (seen with a weak signal), so start over every 30 s until it's up.
+  static unsigned long lastJoin = 0;
+  if (!connected && millis() - lastJoin > 30000) {
+    lastJoin = millis();
+    // Whether the network is in range at all, and how strong: a blocking
+    //  scan of about 2 s, only while offline.
+    int found = WiFi.scanNetworks(), strongest = 0, channel = 0;
+    for (int i = 0; i < found; i++) {
+      if (WiFi.SSID(i) == WIFI_SSID && (channel == 0 || WiFi.RSSI(i) > strongest)) {
+        strongest = WiFi.RSSI(i);
+        channel = WiFi.channel(i);
+      }
+    }
+    WiFi.scanDelete();
+    if (channel) {
+      Serial.printf("Wi-Fi status %d; network seen at %d dBm, channel %d, of %d networks; joining again\n",
+                    WiFi.status(), strongest, channel, found);
+    } else {
+      Serial.printf("Wi-Fi status %d; network not seen among %d networks; joining again\n", WiFi.status(), found);
+    }
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
 
   if (connected != wasConnected) {
     wasConnected = connected;
@@ -658,6 +706,7 @@ void loop() {
   pingTapClients();
   checkTouch();
   updateLed();
+  logHealth();
 
   // A source goes stale with time alone, without a request, so watch for it.
   static uint8_t staleMask = 0;
