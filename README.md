@@ -62,7 +62,11 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 
 ## Firmware
 
-`firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first. The LED pulses red while an agent is blocked.
+`firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first.
+
+The LED pulses red while an agent is blocked.
+
+<p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852972/opencode-permission-led_ymwmer.webp" alt="opencode asks for permission on the Mac, and the board shows it on top with the LED turning red" width="480"></p>
 
 1. Create a `secrets.h` file like shown in `secrets.h.example` and fill in your Wi-Fi credentials
 2. Compile and upload with the display setup from above. Find your port with `arduino-cli board list`
