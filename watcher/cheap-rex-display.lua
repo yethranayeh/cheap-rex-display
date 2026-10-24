@@ -24,10 +24,19 @@ local terminalApp = "com.superlogical.terminal"
 
 -- Set when a send fails, so the next event sends everything instead
 local needResync = true
+-- Set when the display holds nothing we can trust (on start, after it says
+--  it forgot this source): the resync clears it first. A send that merely
+--  timed out doesn't wipe the rows, which made them vanish on a weak link.
+local needReset = true
+-- Clears that didn't get through, sent again on the next resync
+local pendingClears = {}
 -- The session of each pane sent, so a tap can focus it
 local paneSessions = {}
--- The open request for taps, from rex.exec.start
+-- The open request for taps, from rex.exec.start, and when it last carried anything.
+-- The board pings every 15 seconds; after a board restart the old
+--  request stays open but silent, so silence means open it again.
 local taps = nil
+local tapsHeard = 0
 
 -- POSTs form fields to the display. Returns the reply body, or nil when the
 --  display can't be reached.
@@ -47,9 +56,15 @@ local function post(path, fields)
   if r == nil or not r.ok then
     rex.log("cheap-rex-display: " .. path .. " failed: " .. tostring(err or r.stderr))
     needResync = true
+    if fields.state == "clear" then
+      pendingClears[fields.key] = true
+    end
     return nil
   end
 
+  if fields.state == "clear" then
+    pendingClears[fields.key] = nil
+  end
   return r.stdout
 end
 
@@ -96,13 +111,22 @@ local function sendSession(sessionId)
   end
 end
 
--- Clears this source on the display and sends the status of every pane
---  in every session
+-- Sends the status of every pane in every session. The display is cleared
+--  first only when needReset says so; otherwise the rows it holds are
+--  overwritten in place, and the clears that failed are sent again.
 local function resync()
   needResync = false
 
-  if post("/reset", {}) == nil then
-    return
+  if needReset then
+    if post("/reset", {}) == nil then
+      return
+    end
+    needReset = false
+    pendingClears = {}
+  else
+    for key in pairs(pendingClears) do
+      post("/status", { key = key, state = "clear" })
+    end
   end
 
   local list = rex.call("session.list")
@@ -112,13 +136,13 @@ local function resync()
   end
 end
 
--- The tab number of the window that holds a pane, counting from 1
-local function tabIndex(sessionId, blockId)
+-- The window that holds a pane
+local function windowOf(sessionId, blockId)
   local view = rex.session.view{ session_id = sessionId }
 
-  for i, window in ipairs(view and view.windows or {}) do
+  for _, window in ipairs(view and view.windows or {}) do
     if rex.json.encode(window):find(blockId, 1, true) then
-      return i
+      return window.window_id
     end
   end
 
@@ -128,7 +152,8 @@ end
 -- Brings a tapped pane to the front. The key is the one this watcher sent,
 --  pane#record. focus_block only changes the session on the server: each
 --  Rex app keeps its own tab in view, so the app is asked to show the
---  session and the pane's tab as well.
+--  pane's session and window as well, in one action. A separate "go to tab
+--  N" after switching sessions landed in the session already in view.
 local function focusPane(key)
   local blockId = key:match("^[^#]*")
   local sessionId = paneSessions[blockId]
@@ -144,23 +169,19 @@ local function focusPane(key)
     return
   end
 
-  local index = tabIndex(sessionId, blockId)
+  local windowId = windowOf(sessionId, blockId)
   local clients = rex.call("client.list")
 
   for _, client in ipairs(clients and clients.clients or {}) do
     if client.info and client.info.kind == "app" then
-      local function perform(action, args)
-        return rex.call("client.perform", {
-          client_id = client.client_id,
-          session_id = sessionId,
-          action = action,
-          args = args,
-        })
-      end
-
-      perform("session.select", { session_id = sessionId })
-      if index then
-        perform("client.tab.goto", { index = index })
+      local _, performErr = rex.call("client.perform", {
+        client_id = client.client_id,
+        session_id = sessionId,
+        action = "session.select",
+        args = { session_id = sessionId, window_id = windowId },
+      })
+      if performErr then
+        rex.log("cheap-rex-display: app did not switch: " .. tostring(performErr))
       end
     end
   end
@@ -170,14 +191,19 @@ end
 --  line on as it comes; a piece of output may end mid-line.
 local function connectTaps()
   if taps and taps:running() then
-    return
+    if os.time() - tapsHeard < 40 then
+      return
+    end
+    taps:kill()
   end
 
   local buffer = ""
+  tapsHeard = os.time()
   -- detach: the request must outlive the heartbeat that opens it
   taps = rex.exec.start({ "curl", "-4", "-sS", "-N", "--fail", url .. ":81/taps?source=" .. source }, {
     detach = true,
     stdout = function(data)
+      tapsHeard = os.time()
       buffer = buffer .. data
       for line in buffer:gmatch("([^\n]*)\n") do
         local key = line:match("^tap (.+)$")
@@ -232,14 +258,17 @@ end)
 -- A closed session takes its panes with it; start over rather than
 --  track which rows were in it
 rex.on("session_destroyed", function(ctx, ev)
+  needReset = true
   resync()
 end)
 
 rex.every(15, function()
   local reply = post("/heartbeat", {})
-  local forgotten = reply ~= nil and reply:match("^unknown") ~= nil
+  if reply ~= nil and reply:match("^unknown") ~= nil then
+    needReset = true
+  end
 
-  if needResync or forgotten then
+  if needResync or needReset then
     resync()
   end
 
