@@ -23,22 +23,88 @@
 // Taps go back to the watchers on port 81. A watcher keeps one request open,
 //  GET /taps?source=NAME, and reads a line "tap KEY" for each tap on one of its
 //  rows, and "ping" every PING_MS. A new request for a source replaces the old.
+//
+// Wi-Fi comes from the first of these on boot:
+//   1. the network saved in flash, by the setup hotspot or by Improv;
+//   2. WIFI_SSID and WIFI_PASSWORD from secrets.h, if the file is there;
+//   3. none: the board opens its setup hotspot.
+// The setup hotspot is the board's own Wi-Fi, crd-setup-XXXX, with a new WPA2
+//  password each time it opens. The screen shows both. Its page at 192.168.4.1
+//  is a captive portal, so phones and computers open it by themselves. It lists the networks
+//  in range; Save joins the one picked, saves it and restarts. The hotspot also
+//  opens when the network in use can't be joined for SETUP_AFTER_MS, and keeps
+//  trying that network while no device is on the hotspot.
+// Improv Wi-Fi over serial (improv_serial.cpp) works at all times, so ESP Web
+//  Tools can send Wi-Fi over USB right after flashing.
+// The boot splash runs while Wi-Fi connects. With a network to join it waits for
+//  it as before, then shows the status screen, which hands over to the hotspot
+//  once SETUP_AFTER_MS have passed without Wi-Fi. With none, the splash says so
+//  on its bottom line, plays to the end (or a tap) and the hotspot opens.
+// Holding a finger on the splash for FORGET_HOLD_MS offers to forget the saved
+//  network, with a tap to confirm. Nothing over HTTP can forget it.
+// Passwords never go to Serial or the screen, except the hotspot's own.
+//
+// Settings in flash: Preferences (NVS) namespace "crd", one namespace for
+//  everything the board keeps. A normal upload keeps it,
+//  a full flash erase wipes it.
+//  Keys:
+//   wifi_ssid    string  saved network
+//   wifi_pass    string  its password
+//  Reserved for the settings screen, not read yet:
+//   led_count    bool    LedStyle.countBlocked
+//   led_double   int     LedStyle.doubleAfterMin
+//   led_breathe  bool    LedStyle.workingBreathes
+//   led_glow     bool    LedStyle.doneGlows
+//   header_rex   uint8   0 REX_PIXEL, 1 REX_SOFT, 2 REX_BOLD
+//  Forgetting Wi-Fi removes the two wifi_ keys and nothing else.
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
+#include <DNSServer.h>
+#include <Preferences.h>
+#include <algorithm>
 #include <TFT_eSPI.h>             // settings from config/TFT_eSPI/User_Setup.h, see the README
 #include <XPT2046_Touchscreen.h>
-#include "secrets.h"              // WIFI_SSID and WIFI_PASSWORD, from secrets.h.example
+#if __has_include("secrets.h")
+#include "secrets.h"              // optional: WIFI_SSID and WIFI_PASSWORD, from secrets.h.example
+#endif
+#include "improv_serial.h"
 #include "rex_art.h"
 
 #define HOSTNAME "crd"
+#define FIRMWARE_NAME "cheap-rex-display"
+#define FIRMWARE_VERSION "0.1.0"  // for Improv: ESP Web Tools offers an update when its manifest differs
+
+#define SETTINGS_NAMESPACE "crd"
+#define KEY_WIFI_SSID "wifi_ssid"
+#define KEY_WIFI_PASSWORD "wifi_pass"
+
+// Joining Wi-Fi. While offline the board starts over every REJOIN_MS. The
+//  hotspot opens once the network in use couldn't be joined for SETUP_AFTER_MS:
+//  longer than most routers take to start (1 to 2 minutes), so a power cut that
+//  restarts both doesn't send the board to setup, yet short enough for someone
+//  who moved it to another network. Setup keeps trying the old network, so
+//  opening a little early costs nothing.
+#define REJOIN_MS 30000
+#define SETUP_AFTER_MS 180000
+// A network picked in setup or sent by Improv gets this long to join, well
+//  within the 45 s ESP Web Tools waits.
+#define JOIN_MS 20000
+#define HOTSPOT_PASSWORD_LEN 8
+#define MAX_NETWORKS 16
+// Forgetting Wi-Fi: hold the splash this long; a hint shows after FORGET_HINT_MS,
+//  and the question waits FORGET_ASK_MS for its tap.
+#define FORGET_HOLD_MS 5000
+#define FORGET_HINT_MS 1000
+#define FORGET_ASK_MS 10000
 
 // Rex at the left of the header: REX_PIXEL, REX_SOFT or REX_BOLD
 #define HEADER_REX REX_PIXEL
 
 // Boot splash: Rex traces himself while Wi-Fi connects, then the words are
 //  written in. It waits for Wi-Fi up to SPLASH_MAX_MS, and a tap skips it.
+//  With no network to join it doesn't wait.
 #define SPLASH_REX_X 22
 #define SPLASH_REX_Y 52
 #define SPLASH_REX_H 136
@@ -136,6 +202,16 @@ struct TapClient {
   NetworkClient client;
 };
 
+// Where the network in use came from, see the top of this file.
+enum WifiFrom { WIFI_NONE, WIFI_SAVED, WIFI_SECRETS };
+
+// A network the setup page offers
+struct SeenNetwork {
+  String ssid;
+  int rssi;
+  bool open;
+};
+
 Entry entries[MAX_ENTRIES];
 Source sources[MAX_SOURCES];
 TapClient tapClients[MAX_SOURCES];
@@ -151,6 +227,24 @@ unsigned long doneAt = 0;  // when an agent last finished, for the green glow
 bool dirty = true;
 unsigned long lastDraw = 0;
 unsigned long holdUntil = 0;  // a tapped row's outline stays up until then
+
+String wifiSsid, wifiPassword;  // the network in use
+WifiFrom wifiFrom = WIFI_NONE;
+bool serving = false;           // the status and tap servers are up
+bool inSetup = false;
+// A Wi-Fi join that failed drew over the screen, so whoever owns it draws it again.
+bool screenTaken = false;
+
+// Setup mode
+const IPAddress HOTSPOT_IP(192, 168, 4, 1);
+WebServer portal(80);           // takes port 80 once the status server stops
+DNSServer dns;
+char hotspotName[20];
+char hotspotPassword[HOTSPOT_PASSWORD_LEN + 1];
+String setupNote;               // the bottom line of the setup screen
+String pendingSsid, pendingPassword;  // picked on the page, joined once the reply is out
+SeenNetwork networks[MAX_NETWORKS];
+int networkCount = 0;
 
 // The fonts only cover ASCII. Each UTF-8 character outside it becomes '?'.
 void copyAscii(char *dst, size_t size, const String &src) {
@@ -602,14 +696,26 @@ void drawBlended(const Bitmap4 &bmp, int x, int y, uint8_t r, uint8_t g, uint8_t
   }
 }
 
-void drawHeader() {
+// The grey bar at the top, with Rex and a title
+void drawBar(const String &title) {
   tft.fillRect(0, 0, SCREEN_W, HEADER_H, TFT_DARKGREY);
   // TFT_DARKGREY is 123, 125, 123
   drawBlended(HEADER_REX, 3, (HEADER_H - HEADER_REX.h) / 2, 123, 125, 123);
   tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
   tft.setTextDatum(ML_DATUM);
-  String text = WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting...");
-  tft.drawString(text, 3 + HEADER_REX.w + 5, HEADER_H / 2, 2);
+  tft.drawString(title, 3 + HEADER_REX.w + 5, HEADER_H / 2, 2);
+}
+
+// Text cut to fit `width` pixels in `font`
+String fitText(String text, int width, int font) {
+  while (text.length() > 0 && tft.textWidth(text, font) > width) {
+    text.remove(text.length() - 1);
+  }
+  return text;
+}
+
+void drawHeader() {
+  drawBar(WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting..."));
   // Sources at the right: white while live, black when stale.
   int x = SCREEN_W - 4;
   tft.setTextDatum(MR_DATUM);
@@ -691,14 +797,9 @@ void drawRow(int r, const Entry &e) {
     right = SCREEN_W - 3 - tft.textWidth(age, 2) - 8;
   }
 
-  String msg = e.msg;
   int msgX = 86 + tft.textWidth(who + "  ", 2);
-  while (msg.length() > 0 && msgX + tft.textWidth(msg, 2) > right) {
-    msg.remove(msg.length() - 1);
-  }
-
   tft.setTextColor(COLOR_GREY, TFT_BLACK);
-  tft.drawString(msg, msgX, y + ROW_H / 2, 2);
+  tft.drawString(fitText(e.msg, right - msgX, 2), msgX, y + ROW_H / 2, 2);
 }
 
 void drawRows() {
@@ -774,9 +875,9 @@ void refreshAges() {
   }
 }
 
-// Watches the touch screen and sends a tap when a press on a row ends.
-//  The press is placed at the average of its settled readings.
-void checkTouch() {
+// Follows presses on the touch screen. Returns true once when one ends, with
+//  where it was in screen pixels, at the average of its settled readings.
+bool pressEnded(int &x, int &y) {
   static unsigned long pressStarted = 0, lastSeen = 0;
   static long sumX = 0, sumY = 0;
   static int readings = 0;
@@ -795,19 +896,30 @@ void checkTouch() {
       sumY += p.y;
       readings++;
     }
-    return;
+    return false;
   }
 
   if (pressStarted == 0 || now - lastSeen < TOUCH_RELEASE_MS) {
-    return;
+    return false;
   }
 
   pressStarted = 0;
   if (readings == 0) {
+    return false;
+  }
+
+  x = constrain(map(sumX / readings, TOUCH_X_MIN, TOUCH_X_MAX, 0, SCREEN_W - 1), 0, SCREEN_W - 1);
+  y = constrain(map(sumY / readings, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, SCREEN_H - 1), 0, SCREEN_H - 1);
+  return true;
+}
+
+// Sends a tap when a press on a row ends.
+void checkTouch() {
+  int x, y;
+  if (!pressEnded(x, y)) {
     return;
   }
 
-  int y = constrain(map(sumY / readings, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, SCREEN_H - 1), 0, SCREEN_H - 1);
   int r = (y - HEADER_H) / ROW_H;
   if (y < HEADER_H || r >= drawnCount) {
     return;
@@ -817,25 +929,531 @@ void checkTouch() {
   bool sent = sendTap(drawnRows[r]);
   Serial.printf("Tap row %d %s %s: %s\n", r, drawnRows[r].source, drawnRows[r].key, sent ? "sent" : "no watcher");
   tft.drawRect(0, HEADER_H + r * ROW_H, SCREEN_W, ROW_H, sent ? TFT_WHITE : COLOR_GREY);
-  holdUntil = now + TAP_FLASH_MS;
+  holdUntil = millis() + TAP_FLASH_MS;
   dirty = true;
 }
 
-// A new press on the touch screen, for skipping the splash
-bool tapped() {
-  static bool down = false;
-  bool now = touch.touched();
-  bool edge = now && !down;
-  down = now;
-  return edge;
+// Waits up to `ms` for a tap and says where it landed.
+bool waitForTap(int &x, int &y, unsigned long ms) {
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    improvPoll();
+    if (pressEnded(x, y)) {
+      return true;
+    }
+    delay(5);
+  }
+  return false;
 }
 
-// The splash's bottom line: Wi-Fi progress, then the board's address.
+// Waits until the screen has been let go for a moment. A resting finger can
+//  read as lifted for a few ms, which mustn't count as the next tap.
+void waitForRelease() {
+  unsigned long seen = millis();
+  while (millis() - seen < 200) {
+    if (touch.touched()) {
+      seen = millis();
+    }
+    improvPoll();
+    delay(5);
+  }
+}
+
+void drawButton(int x, int y, int w, int h, const char *label, uint16_t color) {
+  tft.fillRoundRect(x, y, w, h, 8, color);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_WHITE, color);
+  tft.drawString(label, x + w / 2, y + h / 2, 4);
+}
+
+// A screen with a title and a line below it, for Wi-Fi steps that take a moment
+void drawNotice(const String &title, const String &line) {
+  tft.fillScreen(TFT_BLACK);
+  drawBar("Wi-Fi");
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString(fitText(title, SCREEN_W - 16, 4), SCREEN_W / 2, 110, 4);
+  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  tft.drawString(fitText(line, SCREEN_W - 16, 2), SCREEN_W / 2, 142, 2);
+}
+
+// Never returns.
+void restartBoard() {
+  Serial.println("Restarting");
+  Serial.flush();
+  delay(500);
+  ESP.restart();
+}
+
+// Reads the saved network into wifiSsid and wifiPassword. False if there is none.
+bool loadSavedWifi() {
+  Preferences settings;
+  // Opening read-only fails while nothing was ever saved.
+  if (!settings.begin(SETTINGS_NAMESPACE, true)) {
+    return false;
+  }
+
+  String ssid = settings.isKey(KEY_WIFI_SSID) ? settings.getString(KEY_WIFI_SSID) : String();
+  String password = settings.isKey(KEY_WIFI_PASSWORD) ? settings.getString(KEY_WIFI_PASSWORD) : String();
+  settings.end();
+  if (ssid.isEmpty()) {
+    return false;
+  }
+
+  wifiSsid = ssid;
+  wifiPassword = password;
+  return true;
+}
+
+void saveWifi(const String &ssid, const String &password) {
+  Preferences settings;
+  settings.begin(SETTINGS_NAMESPACE, false);
+  settings.putString(KEY_WIFI_SSID, ssid);
+  settings.putString(KEY_WIFI_PASSWORD, password);
+  settings.end();
+  Serial.printf("Wi-Fi: saved %s\n", ssid.c_str());
+}
+
+// Removes the saved network, and the copy that builds before this one left in
+//  the Wi-Fi driver's own storage. The other settings stay.
+void forgetWifi() {
+  Preferences settings;
+  settings.begin(SETTINGS_NAMESPACE, false);
+  settings.remove(KEY_WIFI_SSID);
+  settings.remove(KEY_WIFI_PASSWORD);
+  settings.end();
+  WiFi.disconnect(true, true);
+  Serial.println("Wi-Fi: forgot the saved network");
+}
+
+// Picks the network to join, in the order at the top of this file.
+void chooseWifi() {
+  if (loadSavedWifi()) {
+    wifiFrom = WIFI_SAVED;
+    return;
+  }
+
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+  wifiSsid = WIFI_SSID;
+  wifiPassword = WIFI_PASSWORD;
+  wifiFrom = WIFI_SECRETS;
+#endif
+}
+
+// Starts joining the network in use. Auto-reconnect and loop() keep at it.
+void beginWifi() {
+  Serial.printf("Wi-Fi: joining %s (%s)\n", wifiSsid.c_str(), wifiFrom == WIFI_SAVED ? "saved" : "secrets.h");
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+}
+
+// Joins a network picked on the setup page or sent by Improv,
+//  and saves it if that works. Blocks for up to JOIN_MS.
+// On failure it leaves the radio off that network,
+//  says so on the setup screen and sets screenTaken.
+// What to join next is up to the caller
+bool joinNetwork(const String &ssid, const String &password) {
+  Serial.printf("Wi-Fi: trying %s\n", ssid.c_str());
+
+  drawNotice("Joining", ssid);
+
+  WiFi.disconnect();
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  unsigned long start = millis(), lastBegin = start;
+  while (WiFi.status() != WL_CONNECTED && millis() - start < JOIN_MS) {
+    // Without auto-reconnect, as in setup mode, a failed attempt stays failed.
+    wl_status_t status = WiFi.status();
+    if ((status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) && millis() - lastBegin > 5000) {
+      lastBegin = millis();
+      WiFi.begin(ssid.c_str(), password.c_str());
+    }
+    delay(100);
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.printf("Wi-Fi: couldn't join %s\n", ssid.c_str());
+    WiFi.disconnect();
+    setupNote = String("Couldn't join ") + ssid + ". Try again.";
+    screenTaken = true;
+    return false;
+  }
+
+  saveWifi(ssid, password);
+  drawNotice("Joined", ssid);
+  return true;
+}
+
+// What Improv needs from the board, see improv_serial.h
+
+bool improvOnline() {
+  return WiFi.status() == WL_CONNECTED;
+}
+
+String improvUrl() {
+  return String("http://") + WiFi.localIP().toString() + "/";
+}
+
+bool improvJoin(const String &ssid, const String &password) {
+  if (joinNetwork(ssid, password)) {
+    return true;
+  }
+
+  // Back to the network in use. Setup mode goes back to it by itself.
+  if (!inSetup && wifiFrom != WIFI_NONE) {
+    beginWifi();
+  }
+  return false;
+}
+
+// It restarts once joined, like the setup page does.
+const ImprovDevice improvDevice = {
+  FIRMWARE_NAME, FIRMWARE_VERSION, "ESP32", "Cheap Rex Display",
+  improvOnline, improvUrl, improvJoin, restartBoard,
+};
+
+// A new password each time the hotspot opens, from letters that can't be taken
+//  for one another. esp_random() is truly random while the radio is on.
+void makeHotspotPassword() {
+  static const char letters[] = "abcdefghjkmnpqrstuvwxyz23456789";
+  for (int i = 0; i < HOTSPOT_PASSWORD_LEN; i++) {
+    hotspotPassword[i] = letters[esp_random() % (sizeof(letters) - 1)];
+  }
+  hotspotPassword[HOTSPOT_PASSWORD_LEN] = 0;
+}
+
+// Fills `networks` with the ones in range, strongest first, each name once.
+//  Hidden networks have no name to pick, so they are left out.
+void scanForPortal() {
+  int found = WiFi.scanNetworks();
+  networkCount = 0;
+
+  for (int i = 0; i < found; i++) {
+    String ssid = WiFi.SSID(i);
+    SeenNetwork *same = nullptr;
+    for (int k = 0; k < networkCount; k++) {
+      if (networks[k].ssid == ssid) {
+        same = &networks[k];
+      }
+    }
+
+    if (ssid.isEmpty()) {
+      continue;
+    }
+
+    if (same) {
+      same->rssi = max(same->rssi, (int)WiFi.RSSI(i));
+    } else if (networkCount < MAX_NETWORKS) {
+      networks[networkCount++] = {ssid, (int)WiFi.RSSI(i), WiFi.encryptionType(i) == WIFI_AUTH_OPEN};
+    }
+  }
+
+  WiFi.scanDelete();
+  std::sort(networks, networks + networkCount, [](const SeenNetwork &a, const SeenNetwork &b) { return a.rssi > b.rssi; });
+  Serial.printf("Setup: %d networks in range\n", networkCount);
+}
+
+String htmlEscape(const String &text) {
+  String out;
+  for (size_t i = 0; i < text.length(); i++) {
+    char c = text[i];
+    switch (c) {
+      case '&': out += "&amp;"; break;
+      case '<': out += "&lt;"; break;
+      case '>': out += "&gt;"; break;
+      case '"': out += "&quot;"; break;
+      case '\'': out += "&#39;"; break;
+      default:  out += c;
+    }
+  }
+  return out;
+}
+
+const char PAGE_START[] =
+    "<!doctype html><html lang=en><meta charset=utf-8>"
+    "<meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>Cheap Rex Display setup</title>"
+    "<style>body{font:17px system-ui,sans-serif;max-width:400px;margin:24px auto;padding:0 16px}"
+    "label{display:block;margin:16px 0 6px}"
+    "select,input,button{font:inherit;width:100%;padding:10px;box-sizing:border-box}"
+    "button{margin-top:20px}.problem{color:#c00}</style>"
+    "<h1>Wi-Fi setup</h1>";
+
+// The setup page: the networks in range, a password and Save
+String portalPage(const String &problem) {
+  String html = PAGE_START;
+  if (!problem.isEmpty()) {
+    html += String("<p class=problem>") + htmlEscape(problem) + "</p>";
+  }
+
+  if (networkCount == 0) {
+    html += "<p>No networks in range.</p>";
+  } else {
+    html += "<form method=post action=/save><label for=n>Network</label><select id=n name=ssid>";
+    for (int i = 0; i < networkCount; i++) {
+      String name = htmlEscape(networks[i].ssid);
+      html += String("<option value=\"") + name + "\"";
+      html += networks[i].ssid == wifiSsid ? " selected>" : ">";
+      html += name;
+      html += networks[i].open ? " (open)</option>" : "</option>";
+    }
+    html += "</select><label for=p>Password</label><input id=p name=password type=password>"
+            "<button>Save</button></form>";
+  }
+
+  html += "<p>The board only sees 2.4 GHz networks. <a href=/scan>Scan again</a></p>";
+  return html;
+}
+
+void handlePortalPage() {
+  portal.send(200, "text/html", portalPage(""));
+}
+
+// Every name points at the board, so phones checking for a captive portal get
+//  sent here, see that it isn't their answer and open the page.
+void handlePortalRedirect() {
+  portal.sendHeader("Location", String("http://") + HOTSPOT_IP.toString() + "/");
+  portal.send(302, "text/plain", "");
+}
+
+void handlePortalScan() {
+  scanForPortal();
+  handlePortalRedirect();
+}
+
+// Takes the network picked on the page. The join waits until the reply is out:
+//  it moves the radio to that network's channel, which can drop the phone.
+void handlePortalSave() {
+  String ssid = portal.arg("ssid"), password = portal.arg("password");
+  String problem = ssid.isEmpty() || ssid.length() > 32 ? "Pick a network."
+      : password.length() > 0 && password.length() < 8 ? "Wi-Fi passwords have at least 8 characters."
+      : password.length() > 64 ? "That password is too long."
+      : "";
+  if (!problem.isEmpty()) {
+    portal.send(400, "text/html", portalPage(problem));
+    return;
+  }
+
+  String html = PAGE_START;
+  html += String("<p>Joining <b>") + htmlEscape(ssid) + "</b>.</p>"
+          "<p>Watch the board's screen. Once it's on, it restarts and this hotspot goes away.</p>"
+          "<p>If the screen says it couldn't join, join <b>";
+  html += hotspotName;
+  html += "</b> again and try once more.</p>";
+  portal.send(200, "text/html", html);
+  pendingSsid = ssid;
+  pendingPassword = password;
+}
+
+// Joins the network picked on the page. It restarts when that works; otherwise
+//  the hotspot stays and the screen says what happened.
+void joinFromPortal() {
+  String ssid = pendingSsid, password = pendingPassword;
+  pendingSsid = pendingPassword = "";
+  delay(500);  // for the reply to reach the phone
+  if (joinNetwork(ssid, password)) {
+    restartBoard();
+  }
+}
+
+// Keeps trying the network in use while no phone is on the hotspot, so after a
+//  router restart the board finds its way back by itself. A try moves the radio
+//  to that network's channel and would drop a phone, hence the wait.
+void retryNetworkInUse() {
+  static unsigned long lastTry = millis();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("Setup: %s is back\n", wifiSsid.c_str());
+    restartBoard();
+  }
+
+  if (wifiFrom == WIFI_NONE || WiFi.softAPgetStationNum() > 0 || millis() - lastTry < REJOIN_MS) {
+    return;
+  }
+
+  lastTry = millis();
+  beginWifi();
+}
+
+// The setup page takes port 80, so the status server makes room.
+void stopServers() {
+  if (!serving) {
+    return;
+  }
+
+  for (auto &t : tapClients) {
+    t.client.stop();
+  }
+
+  tapServer.end();
+  server.stop();
+  MDNS.end();
+  serving = false;
+}
+
+// Opens the board's own Wi-Fi and the setup page on it.
+// Every name resolves to the board (a captive portal),
+//  so phones show the page as soon as they join.
+void startHotspot() {
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect();
+  WiFi.mode(WIFI_AP_STA);
+  scanForPortal();
+
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  snprintf(hotspotName, sizeof(hotspotName), "crd-setup-%02X%02X", mac[4], mac[5]);
+  makeHotspotPassword();
+  WiFi.softAPConfig(HOTSPOT_IP, HOTSPOT_IP, IPAddress(255, 255, 255, 0));
+  WiFi.softAP(hotspotName, hotspotPassword);
+  dns.start(53, "*", HOTSPOT_IP);
+
+  portal.on("/", HTTP_GET, handlePortalPage);
+  portal.on("/save", HTTP_POST, handlePortalSave);
+  portal.on("/scan", HTTP_GET, handlePortalScan);
+  portal.onNotFound(handlePortalRedirect);
+  portal.begin();
+  Serial.printf("Setup: hotspot %s, page at http://%s/\n", hotspotName, HOTSPOT_IP.toString().c_str());
+}
+
+void drawSetupScreen() {
+  tft.fillScreen(TFT_BLACK);
+  drawBar("Wi-Fi setup");
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString("1. On a phone or computer, join:", 8, 40, 2);
+  tft.drawString(hotspotName, 100, 66, 4);
+  tft.drawString(hotspotPassword, 100, 96, 4);
+  tft.drawString("2. A page opens. If not, go to", 8, 126, 2);
+  tft.drawString("http://192.168.4.1", 26, 144, 2);
+  tft.drawString("3. Pick your network, enter its", 8, 166, 2);
+  tft.drawString("password, then choose Save.", 26, 184, 2);
+
+  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  tft.drawString("Name", 26, 66, 2);
+  tft.drawString("Password", 26, 96, 2);
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.drawString(fitText(setupNote, SCREEN_W - 16, 2), 8, 220, 2);
+}
+
+// Setup mode: the board's own hotspot, with a page to pick a network.
+// It ends by restarting, once a network picked on the page or sent by Improv is joined
+//  and saved, or once the network in use is back. Never returns.
+void runSetup(const String &note) {
+  Serial.println("Setup: opening the hotspot");
+  inSetup = true;
+  setupNote = note;
+  stopServers();
+  setLed(0, 0, 0);
+  startHotspot();
+  drawSetupScreen();
+
+  for (;;) {
+    dns.processNextRequest();
+    portal.handleClient();
+    improvPoll();
+    if (!pendingSsid.isEmpty()) {
+      joinFromPortal();
+    }
+
+    retryNetworkInUse();
+    if (screenTaken) {
+      screenTaken = false;
+      drawSetupScreen();
+    }
+    delay(2);
+  }
+}
+
+// After a long hold on the splash: asks whether to forget the saved network.
+// Forgetting restarts the board, and anything else lets it carry on booting.
+void offerForget() {
+  const int buttonY = 130, buttonW = 130, buttonH = 56, keepX = 20, forgetX = 170;
+  Serial.println("Wi-Fi: asking whether to forget the saved network");
+
+  tft.fillScreen(TFT_BLACK);
+  drawBar("Wi-Fi");
+
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString("Forget this Wi-Fi?", SCREEN_W / 2, 52, 4);
+  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  tft.drawString(fitText(wifiSsid, SCREEN_W - 16, 2), SCREEN_W / 2, 80, 2);
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+  tft.drawString("Then it joins the one in secrets.h.", SCREEN_W / 2, 102, 2);
+#else
+  tft.drawString("Then it opens its setup hotspot.", SCREEN_W / 2, 102, 2);
+#endif
+  drawButton(keepX, buttonY, buttonW, buttonH, "Keep", TFT_DARKGREY);
+  drawButton(forgetX, buttonY, buttonW, buttonH, "Forget", TFT_RED);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  tft.drawString(String("It stays if you wait ") + FORGET_ASK_MS / 1000 + " s.", SCREEN_W / 2, 214, 2);
+
+  // The finger that held the splash must not count as the answer.
+  waitForRelease();
+  int x, y;
+  bool forget = waitForTap(x, y, FORGET_ASK_MS)
+      && x >= forgetX && x < forgetX + buttonW && y >= buttonY && y < buttonY + buttonH;
+  if (forget) {
+    forgetWifi();
+    drawNotice("Wi-Fi forgotten", "Restarting...");
+    restartBoard();
+  }
+
+  Serial.println("Wi-Fi: kept the saved network");
+  tft.fillScreen(TFT_BLACK);
+}
+
+unsigned long splashPressStart = 0, splashPressSeen = 0;  // the press on the splash, 0 when none
+
+// Watches the screen during the splash. A press that ends before FORGET_HOLD_MS
+//  is a tap and skips the splash. With a saved network, holding on that long
+//  asks whether to forget it. Returns true when the splash should end.
+bool splashInput() {
+  improvPoll();
+  if (screenTaken) {
+    return true;  // an Improv join that failed drew over it
+  }
+
+  unsigned long now = millis();
+  if (touch.touched()) {
+    if (splashPressStart == 0) {
+      splashPressStart = now;
+    }
+    splashPressSeen = now;
+
+    if (wifiFrom == WIFI_SAVED && now - splashPressStart >= FORGET_HOLD_MS) {
+      offerForget();
+      splashPressStart = 0;
+      return true;
+    }
+    return false;
+  }
+
+  if (splashPressStart == 0 || now - splashPressSeen < TOUCH_RELEASE_MS) {
+    return false;
+  }
+
+  splashPressStart = 0;
+  return true;
+}
+
+// The splash's bottom line: Wi-Fi progress, then the board's address. While a
+//  finger rests on it with a saved network, how long until it offers to forget.
 void splashStatus(unsigned long start) {
   static String shown;
-  String text = WiFi.status() == WL_CONNECTED
-      ? String(HOSTNAME ".local ") + WiFi.localIP().toString()
-      : String("Wi-Fi connecting") + String("...").substring(0, (millis() - start) / 333 % 3 + 1);
+  unsigned long held = splashPressStart ? millis() - splashPressStart : 0;
+  String text;
+
+  if (wifiFrom == WIFI_SAVED && held >= FORGET_HINT_MS && held < FORGET_HOLD_MS) {
+    text = String("Hold ") + ((FORGET_HOLD_MS - held) / 1000 + 1) + " s more to forget Wi-Fi";
+  } else if (wifiFrom == WIFI_NONE) {
+    text = "No Wi-Fi saved yet, setup comes next";
+  } else if (WiFi.status() == WL_CONNECTED) {
+    text = String(HOSTNAME ".local ") + WiFi.localIP().toString();
+  } else {
+    text = String("Wi-Fi connecting") + String("...").substring(0, (millis() - start) / 333 % 3 + 1);
+  }
+
   if (text == shown) {
     return;
   }
@@ -896,8 +1514,9 @@ void drawColumns(const Bitmap1 &b, int x, int y, int c0, int c1) {
   }
 }
 
-// Returns once Wi-Fi has been up for SPLASH_HOLD_MS, after
-//  SPLASH_MAX_MS, or on a tap.
+// Returns once Wi-Fi has been up for SPLASH_HOLD_MS (right after the drawing
+//  with no network to join), after SPLASH_MAX_MS, or on a tap.
+// It waits for a finger to lift first, since a press may turn into a hold.
 void splash() {
   unsigned long start = millis();
   tft.fillScreen(TFT_BLACK);
@@ -913,7 +1532,7 @@ void splash() {
     traceRex(drawn, to);
     drawn = to;
     splashStatus(start);
-    skipped = tapped();
+    skipped = splashInput();
     delay(5);
   }
 
@@ -927,23 +1546,24 @@ void splash() {
       drawColumns(w.b, w.x, w.y, done, upto);
       done = upto;
       splashStatus(start);
-      skipped = tapped();
+      skipped = splashInput();
       delay(10);
     }
   }
 
   unsigned long upSince = 0;
-  while (!skipped && millis() - start < SPLASH_MAX_MS) {
-    if (WiFi.status() == WL_CONNECTED) {
-      if (upSince == 0) {
-        upSince = millis();
-      } else if (millis() - upSince >= SPLASH_HOLD_MS) {
-        break;
-      }
+  while (!skipped) {
+    if ((WiFi.status() == WL_CONNECTED || wifiFrom == WIFI_NONE) && upSince == 0) {
+      upSince = millis();
+    }
+
+    bool done = (upSince != 0 && millis() - upSince >= SPLASH_HOLD_MS) || millis() - start >= SPLASH_MAX_MS;
+    if (done && splashPressStart == 0) {
+      break;
     }
 
     splashStatus(start);
-    skipped = tapped();
+    skipped = splashInput();
     delay(10);
   }
 
@@ -956,6 +1576,7 @@ void splash() {
 
 void setup() {
   Serial.begin(115200);
+  improvBegin(improvDevice);
 
   ledcAttach(LED_RED, 5000, 8);
   ledcAttach(LED_GREEN, 5000, 8);
@@ -970,6 +1591,9 @@ void setup() {
   touch.begin(touchSPI);
   touch.setRotation(1);
 
+  // The password lives in the settings only, not in a second copy the Wi-Fi
+  //  driver would keep in flash.
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
   WiFi.setAutoReconnect(true);
@@ -978,8 +1602,17 @@ void setup() {
   WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
     Serial.printf("Wi-Fi lost, reason %d\n", info.wifi_sta_disconnected.reason);
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  chooseWifi();
+  if (wifiFrom != WIFI_NONE) {
+    beginWifi();
+  } else {
+    Serial.println("Wi-Fi: none saved and no secrets.h, setup after the splash");
+  }
+
   splash();
+  if (wifiFrom == WIFI_NONE) {
+    runSetup("No Wi-Fi saved yet.");
+  }
 
   server.on("/status", HTTP_POST, handleStatus);
   server.on("/heartbeat", HTTP_POST, handleHeartbeat);
@@ -988,6 +1621,7 @@ void setup() {
   server.on("/screen.bmp", HTTP_GET, handleScreen);
   server.begin();
   tapServer.begin();
+  serving = true;
   Serial.println("cheap-rex-display started");
 }
 
@@ -1013,16 +1647,24 @@ void loop() {
   static bool wasConnected = false;
   bool connected = WiFi.status() == WL_CONNECTED;
 
+  // Long enough without Wi-Fi, and it's time for the setup hotspot.
+  static unsigned long lastOnline = 0;
+  if (connected) {
+    lastOnline = millis();
+  } else if (millis() - lastOnline > SETUP_AFTER_MS) {
+    runSetup(String("Can't reach ") + wifiSsid + ", still trying.");
+  }
+
   // Auto-reconnect can give up after a failed join and leave the link idle
-  //  for good (seen with a weak signal), so start over every 30 s until it's up.
+  //  for good (seen with a weak signal), so start over every REJOIN_MS until it's up.
   static unsigned long lastJoin = 0;
-  if (!connected && millis() - lastJoin > 30000) {
+  if (!connected && millis() - lastJoin > REJOIN_MS) {
     lastJoin = millis();
     // Whether the network is in range at all, and how strong: a blocking
     //  scan of about 2 s, only while offline.
     int found = WiFi.scanNetworks(), strongest = 0, channel = 0;
     for (int i = 0; i < found; i++) {
-      if (WiFi.SSID(i) == WIFI_SSID && (channel == 0 || WiFi.RSSI(i) > strongest)) {
+      if (WiFi.SSID(i) == wifiSsid && (channel == 0 || WiFi.RSSI(i) > strongest)) {
         strongest = WiFi.RSSI(i);
         channel = WiFi.channel(i);
       }
@@ -1035,7 +1677,7 @@ void loop() {
       Serial.printf("Wi-Fi status %d; network not seen among %d networks; joining again\n", WiFi.status(), found);
     }
     WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
   }
 
   if (connected != wasConnected) {
@@ -1051,6 +1693,11 @@ void loop() {
   }
 
   server.handleClient();
+  improvPoll();
+  if (screenTaken) {
+    screenTaken = false;
+    dirty = true;
+  }
   acceptTapClient();
   pingTapClients();
   checkTouch();

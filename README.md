@@ -40,7 +40,7 @@ Known values for this board, if you write your own code:
 ## Setup from zero
 
 1. Install [arduino-cli](https://arduino.github.io/arduino-cli/latest/installation/) (`brew install arduino-cli` on macOS)
-2. Install the ESP32 core (downloads about 1.5 GB and takes about 5 GB installed), **TFT_eSPI** and **XPT2046_Touchscreen**, at the versions above:
+2. Install the ESP32 core (downloads about 1.5 GB and takes about 5 GB installed), **TFT_eSPI** and **XPT2046_Touchscreen**, at the versions above. Wi-Fi setup needs nothing more: `Preferences`, `DNSServer` and `WebServer` come with the core, and the firmware speaks Improv Wi-Fi itself, without a library:
 
    ```sh
    URL=https://espressif.github.io/arduino-esp32/package_esp32_index.json
@@ -82,11 +82,11 @@ The LED speaks for each agent that waits for you, one after another, then pauses
 
 If nobody is waiting, it glows green for a moment when an agent finishes, breathes blue while agents work, and stays magenta on an error. `LedStyle` in the firmware switches each of these: one signal for all instead of one per agent, a single red pulse instead of the double blink (or the double only after a few minutes), steady blue, steady green.
 
-On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my drawing. The the header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
+On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my handwriting. The header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
 
 <p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852972/opencode-permission-led_ymwmer.webp" alt="opencode asks for permission on the Mac, and the board shows it on top with the LED turning red" width="480"></p>
 
-1. Create a `secrets.h` file like shown in `secrets.h.example` and fill in your Wi-Fi credentials
+1. Optional: create a `secrets.h` file like shown in `secrets.h.example` and fill in your Wi-Fi credentials. Without it, set up Wi-Fi on the board after uploading, see [Wi-Fi](#wi-fi)
 2. Compile and upload with the display setup from above. Find your port with `arduino-cli board list`
 
 ```sh
@@ -104,6 +104,34 @@ curl -4 -d source=test -d key=1 -d state=clear http://crd.local/status
 ```
 
 `-4` is for macOS to expect IPv4 answer from the board without waiting for an IPv6 answer that CYD never even sends.
+
+### Wi-Fi
+
+The board keeps its Wi-Fi in flash. On boot it joins, in this order:
+
+1. the network saved on the board, through the setup hotspot or Improv
+2. the one in `secrets.h`, if you built with it
+3. none: it opens its setup hotspot
+
+**Setup hotspot.** With nothing to join, the board says so at the bottom of the boot animation, then opens its own Wi-Fi. The screen shows its name (`crd-setup-` and four letters of the board's address) and a password, new each time the hotspot opens:
+
+1. On a phone or computer, join that Wi-Fi with the password from the screen.
+2. A setup page opens by itself. If it doesn't, go to `http://192.168.4.1`.
+3. Pick your network, enter its password and choose **Save**. The board only sees 2.4 GHz networks. **Scan again** looks once more.
+
+The board joins the network, saves it and restarts onto it. The hotspot goes away. If it can't join, the board's screen says so and the hotspot stays: join it again and retry.
+
+The hotspot also opens when the board can't join its network for 3 minutes. This can happen if you move it somewhere else. While no device is on the hotspot, the board keeps trying its old network, and restarts onto it once it's back.
+
+**Improv over USB.** The firmware speaks [Improv Wi-Fi](https://www.improv-wifi.com/serial/) over its serial port at all times. An installer built on [ESP Web Tools](https://esphome.github.io/esp-web-tools/) offers to set up Wi-Fi right after flashing. On a board that is already flashed, the **Improv via Serial** button on [improv-wifi.com](https://www.improv-wifi.com/) does the same in Chrome or Edge. Close any serial monitor first. Once the board joins, it saves the network and restarts.
+
+**`secrets.h`** is optional and works as before. A network saved on the board comes first, so after forgetting it the board goes back to the one in `secrets.h`.
+
+**Forgetting Wi-Fi.** Hold a finger on the boot animation. After a second the bottom line counts down, and after 5 seconds the board asks whether to forget the saved network. Tap **Forget** to forget it and restart, or **Keep**, or wait 10 seconds, to keep it. A short tap still skips the animation. Forgetting is only offered on the board itself, never over HTTP, and only when a network is saved on the board.
+
+A normal upload keeps the saved network. A full flash erase (`esptool.py erase_flash`, or an installer's "erase device" option) wipes it, along with the board's other settings, so set it up again after one.
+
+The board keeps its settings in the `Preferences` (NVS) namespace `crd`: `wifi_ssid` and `wifi_pass`. The firmware's header comment lists the keys. Passwords never go to the serial port or the screen.
 
 ## Watcher
 
@@ -143,7 +171,13 @@ The header lists every source the board has heard from, up to four.
 
 - **Upload fails with "The chip stopped responding"**: upload at 460800 (`:UploadSpeed=460800` in the `--fqbn`). If the port is busy, close any serial monitor first.
 - **Blank screen or wrong colors**: your board is likely a different CYD variant. Start with `config/TFT_eSPI/User_Setup.h`.
-- **Header stays at "Wi-Fi connecting..."**: the ESP32 only joins 2.4 GHz networks. Check `secrets.h`, then open a serial monitor at 115200 baud: the board prints `Wi-Fi up: <address>` or `Wi-Fi down`.
+- **Header stays at "Wi-Fi connecting..."**: the ESP32 only joins 2.4 GHz networks. Open a serial monitor at 115200 baud: the board prints which network it joins (saved or `secrets.h`), then `Wi-Fi up: <address>` or `Wi-Fi down`. After 3 minutes it opens the setup hotspot, or hold the boot animation to forget the saved network.
+- **Wrong network after setting one up**: a network saved on the board comes before `secrets.h`. Forget it to go back to `secrets.h`.
+- **The setup page doesn't open**: go to `http://192.168.4.1` while your device is on the hotspot. Some phones and computers leave a Wi-Fi without internet after a while; tell yours to stay on it.
+- **The setup screen says "Couldn't join"**: check the password, and that the network is 2.4 GHz. Join the hotspot again and retry.
+- **No networks on the setup page**: tap **Scan again**. Hidden networks aren't listed.
+- **The installer doesn't offer Wi-Fi setup, or improv-wifi.com says Improv isn't detected**: close any serial monitor, since only one program can hold the port. Press the board's reset button and try again.
+- **Wi-Fi is gone after an update**: the flash was fully erased. Set it up again.
 - **`crd.local` takes 5 seconds**: macOS also asks for an IPv6 address the board never sends. Use `curl -4`. The watcher watcher already does this as documented above.
 - **`crd.local` not found**: `.local` names (mDNS) only work on the same network. Try using the address in the board's header instead: `url=http://<address>`.
 - **The watcher logs `/status failed`**: the board can't be reached. The watcher sends everything again once it is back.
