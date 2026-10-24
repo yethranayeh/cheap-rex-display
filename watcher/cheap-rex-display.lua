@@ -12,6 +12,10 @@
 --  display and sends the current status of every pane. Between those it
 --  sends each change, and a heartbeat every 15 seconds so the display can
 --  tell when this server has gone quiet, e.g. a laptop that went to sleep
+--
+-- It also keeps a request open to the display's port 81, which sends a line
+--  for each tap on one of this server's rows. A tap brings that pane to the
+--  front. The request is opened again on each heartbeat if it dropped.
 
 local source = rex.args.source or "mac"
 local url = rex.args.url or "http://crd.local"
@@ -20,6 +24,10 @@ local terminalApp = "com.superlogical.terminal"
 
 -- Set when a send fails, so the next event sends everything instead
 local needResync = true
+-- The session of each pane sent, so a tap can focus it
+local paneSessions = {}
+-- The open request for taps, from rex.exec.start
+local taps = nil
 
 -- POSTs form fields to the display. Returns the reply body, or nil when the
 --  display can't be reached.
@@ -58,6 +66,7 @@ end
 -- The key names the pane and the record,
 --  so the display can clear them one by one or all at once.
 local function sendRecord(sessionId, blockId, recordId, record)
+  paneSessions[blockId] = sessionId
   post("/status", {
     key = blockId .. "#" .. (recordId or ""),
     session = sessionLabel(sessionId),
@@ -101,6 +110,84 @@ local function resync()
   for _, session in ipairs(list and list.sessions or {}) do
     sendSession(session.session_id)
   end
+end
+
+-- The tab number of the window that holds a pane, counting from 1
+local function tabIndex(sessionId, blockId)
+  local view = rex.session.view{ session_id = sessionId }
+
+  for i, window in ipairs(view and view.windows or {}) do
+    if rex.json.encode(window):find(blockId, 1, true) then
+      return i
+    end
+  end
+
+  return nil
+end
+
+-- Brings a tapped pane to the front. The key is the one this watcher sent,
+--  pane#record. focus_block only changes the session on the server: each
+--  Rex app keeps its own tab in view, so the app is asked to show the
+--  session and the pane's tab as well.
+local function focusPane(key)
+  local blockId = key:match("^[^#]*")
+  local sessionId = paneSessions[blockId]
+
+  if sessionId == nil then
+    rex.log("cheap-rex-display: tap on unknown pane " .. blockId)
+    return
+  end
+
+  local _, err = rex.session.focus_block{ session_id = sessionId, block_id = blockId }
+  if err then
+    rex.log("cheap-rex-display: focus failed: " .. tostring(err))
+    return
+  end
+
+  local index = tabIndex(sessionId, blockId)
+  local clients = rex.call("client.list")
+
+  for _, client in ipairs(clients and clients.clients or {}) do
+    if client.info and client.info.kind == "app" then
+      local function perform(action, args)
+        return rex.call("client.perform", {
+          client_id = client.client_id,
+          session_id = sessionId,
+          action = action,
+          args = args,
+        })
+      end
+
+      perform("session.select", { session_id = sessionId })
+      if index then
+        perform("client.tab.goto", { index = index })
+      end
+    end
+  end
+end
+
+-- Opens the request for taps unless it is still open. curl -N passes each
+--  line on as it comes; a piece of output may end mid-line.
+local function connectTaps()
+  if taps and taps:running() then
+    return
+  end
+
+  local buffer = ""
+  -- detach: the request must outlive the heartbeat that opens it
+  taps = rex.exec.start({ "curl", "-4", "-sS", "-N", "--fail", url .. ":81/taps?source=" .. source }, {
+    detach = true,
+    stdout = function(data)
+      buffer = buffer .. data
+      for line in buffer:gmatch("([^\n]*)\n") do
+        local key = line:match("^tap (.+)$")
+        if key then
+          focusPane(key)
+        end
+      end
+      buffer = buffer:match("[^\n]*$")
+    end,
+  })
 end
 
 rex.on("terminal.program_status_changed", function(ctx, ev)
@@ -155,6 +242,9 @@ rex.every(15, function()
   if needResync or forgotten then
     resync()
   end
+
+  connectTaps()
 end)
 
 resync()
+connectTaps()

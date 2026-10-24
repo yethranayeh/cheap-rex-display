@@ -33,13 +33,14 @@ Known values for this board, if you write your own code:
 ## Setup from zero
 
 1. Install [arduino-cli](https://arduino.github.io/arduino-cli/latest/installation/) (`brew install arduino-cli` on macOS)
-2. Install the ESP32 core (downloads about 1.5 GB and takes about 5 GB installed) and **TFT_eSPI**, at the versions above:
+2. Install the ESP32 core (downloads about 1.5 GB and takes about 5 GB installed), **TFT_eSPI** and **XPT2046_Touchscreen**, at the versions above:
 
    ```sh
    URL=https://espressif.github.io/arduino-esp32/package_esp32_index.json
    arduino-cli core update-index --additional-urls $URL
    arduino-cli core install esp32:esp32@3.3.7 --additional-urls $URL
    arduino-cli lib install "TFT_eSPI@2.5.43"
+   arduino-cli lib install "XPT2046_Touchscreen@1.4"
    ```
 
 3. Plug in the board and find its port with `arduino-cli board list`.
@@ -98,13 +99,15 @@ rex do watcher/cheap-rex-display.lua --all
 `--all` delivers events from every session, not only the one the script runs in. Two optional arguments can be provided:
 
 - `source=<name>`: the name this Rex server gets on the display, `mac` by default.
-- `url=<address>`: the board's address, whcih is `http://crd.local` by default.
+- `url=<address>`: the board's address, which is `http://crd.local` by default.
 
 On start, the script sends the current status of every pane. After that it sends each change, and a heartbeat every 15 seconds. Closing a pane, or the tab it is in, removes its row, and renaming a session renames it on the display too.
 
 The board keeps everything in memory, so a restart empties it. When that happens, or the board drops off Wi-Fi for a while, the next heartbeat notices and the script sends everything again, within about 15 seconds.
 
 If a Rex server goes quiet for 60 seconds, for example a laptop that went to sleep, its rows turn grey and its name in the header turns black. Grey rows don't light the LED.
+
+Tap a row to bring its pane to the front: the Rex app switches to that session and tab. The row flashes a white outline when its watcher took the tap, and a grey one when no watcher is listening. The script keeps a request open to the board's port 81 for this (`GET /taps?source=<name>`), and opens it again on the next heartbeat if it drops.
 
 ### Several Rex servers
 

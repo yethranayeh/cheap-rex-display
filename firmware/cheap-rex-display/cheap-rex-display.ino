@@ -18,19 +18,43 @@
 //   GET  /screen.bmp  what the screen shows, read back from the display.
 // A source that sends nothing for STALE_MS is shown grey and ignored by the
 //  LED, so a sleeping laptop leaves no "working" behind.
+//
+// Taps go back to the watchers on port 81. A watcher keeps one request open,
+//  GET /taps?source=NAME, and reads a line "tap KEY" for each tap on one of its
+//  rows, and "ping" every PING_MS. A new request for a source replaces the old.
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <TFT_eSPI.h>             // settings from config/TFT_eSPI/User_Setup.h, see the README
+#include <XPT2046_Touchscreen.h>
 #include "secrets.h"              // WIFI_SSID and WIFI_PASSWORD, from secrets.h.example
 
 #define HOSTNAME "crd"
+#define TAP_PORT 81
+#define PING_MS 15000
 
 // RGB LED, active low.
 #define LED_RED 4
 #define LED_GREEN 16
 #define LED_BLUE 17
+
+// Touch controller, on its own SPI bus.
+#define TOUCH_IRQ 36
+#define TOUCH_MOSI 32
+#define TOUCH_MISO 39
+#define TOUCH_CLK 25
+#define TOUCH_CS 33
+// Raw touch range, measured edge to edge in rotation 1.
+#define TOUCH_X_MIN 275
+#define TOUCH_X_MAX 3630
+#define TOUCH_Y_MIN 380
+#define TOUCH_Y_MAX 3730
+// The first readings of a press drift by several pixels while the finger lands.
+#define TOUCH_SETTLE_MS 30
+// A press has ended once no touch was seen for this long.
+#define TOUCH_RELEASE_MS 60
+#define TAP_FLASH_MS 300
 
 #define SCREEN_W 320
 #define SCREEN_H 240
@@ -65,12 +89,33 @@ struct Source {
   unsigned long lastSeen;
 };
 
+// What each drawn row shows, so a tap still names the right pane after the
+//  entries change underneath it.
+struct Row {
+  char source[16];
+  char key[80];
+};
+
+// Kept apart from sources: an open tap request must not make the board
+//  answer "known" to a heartbeat when it holds nothing from that source.
+struct TapClient {
+  char source[16];
+  NetworkClient client;
+};
+
 Entry entries[MAX_ENTRIES];
 Source sources[MAX_SOURCES];
+TapClient tapClients[MAX_SOURCES];
+Row drawnRows[MAX_ENTRIES];
+int drawnCount = 0;
 TFT_eSPI tft = TFT_eSPI();
+SPIClass touchSPI = SPIClass(VSPI);
+XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
 WebServer server(80);
+NetworkServer tapServer(TAP_PORT);
 bool dirty = true;
 unsigned long lastDraw = 0;
+unsigned long holdUntil = 0;  // a tapped row's outline stays up until then
 
 // The fonts only cover ASCII. Each UTF-8 character outside it becomes '?'.
 void copyAscii(char *dst, size_t size, const String &src) {
@@ -230,6 +275,93 @@ void handleReset() {
   server.send(200, "text/plain", "ok\n");
 }
 
+TapClient *findTapClient(const char *source) {
+  for (auto &t : tapClients) {
+    if (t.client.connected() && strcmp(t.source, source) == 0) {
+      return &t;
+    }
+  }
+
+  return nullptr;
+}
+
+// Takes a new tap request on port 81 and keeps it open for its source.
+void acceptTapClient() {
+  if (!tapServer.hasClient()) {
+    return;
+  }
+
+  NetworkClient client = tapServer.accept();
+  client.setTimeout(500);
+  String request = client.readStringUntil('\n');  // GET /taps?source=NAME HTTP/1.1
+  while (client.available()) {
+    client.read();  // the rest of the headers
+  }
+
+  int start = request.indexOf("source=");
+  int end = request.indexOf(' ', start);
+  String name = start < 0 ? "" : request.substring(start + 7, end < 0 ? request.length() : end);
+  if (!request.startsWith("GET /taps") || name.isEmpty()) {
+    client.print("HTTP/1.0 400 Bad Request\r\n\r\nGET /taps?source=NAME\n");
+    client.stop();
+    return;
+  }
+
+  char src[16];
+  copyAscii(src, sizeof(src), name);
+  TapClient *slot = findTapClient(src);
+
+  for (auto &t : tapClients) {
+    if (!slot && !t.client.connected()) {
+      slot = &t;
+    }
+  }
+
+  if (!slot) {
+    client.print("HTTP/1.0 507 Insufficient Storage\r\n\r\nfull\n");
+    client.stop();
+    return;
+  }
+
+  slot->client.stop();
+  strlcpy(slot->source, src, sizeof(slot->source));
+  client.print("HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n");
+  slot->client = client;
+  Serial.printf("Taps: %s connected\n", src);
+}
+
+// A ping now and then shows whether each watcher is still there: writing to
+//  a closed connection fails.
+void pingTapClients() {
+  static unsigned long lastPing = 0;
+  if (millis() - lastPing < PING_MS) {
+    return;
+  }
+
+  lastPing = millis();
+  for (auto &t : tapClients) {
+    if (t.client.connected() && t.client.print("ping\n") == 0) {
+      t.client.stop();
+    }
+  }
+}
+
+// Sends a tap to the watcher of the row's source.
+// Returns false if none is connected.
+bool sendTap(const Row &row) {
+  TapClient *t = findTapClient(row.source);
+  if (!t) {
+    return false;
+  }
+
+  if (t->client.printf("tap %s\n", row.key) == 0) {
+    t->client.stop();
+    return false;
+  }
+
+  return true;
+}
+
 void handleDump() {
   String out;
   for (auto &s : sources) {
@@ -380,6 +512,7 @@ void drawRows() {
 
   int rows = (SCREEN_H - HEADER_H) / ROW_H;
   tft.fillRect(0, HEADER_H, SCREEN_W, SCREEN_H - HEADER_H, TFT_BLACK);
+  drawnCount = 0;
   if (count == 0) {
     tft.setTextColor(COLOR_GREY, TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
@@ -396,6 +529,9 @@ void drawRows() {
     }
 
     const Entry &e = entries[order[r]];
+    strlcpy(drawnRows[r].source, e.source, sizeof(drawnRows[r].source));
+    strlcpy(drawnRows[r].key, e.key, sizeof(drawnRows[r].key));
+    drawnCount = r + 1;
     bool stale = isStale(e.source);
     uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
     uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
@@ -422,6 +558,53 @@ void drawRows() {
   }
 }
 
+// Watches the touch screen and sends a tap when a press on a row ends.
+//  The press is placed at the average of its settled readings.
+void checkTouch() {
+  static unsigned long pressStarted = 0, lastSeen = 0;
+  static long sumX = 0, sumY = 0;
+  static int readings = 0;
+  unsigned long now = millis();
+
+  if (touch.tirqTouched() && touch.touched()) {
+    TS_Point p = touch.getPoint();
+    if (pressStarted == 0) {
+      pressStarted = now;
+      sumX = sumY = readings = 0;
+    }
+    lastSeen = now;
+    // On lift-off the library reports z 0 with the previous coordinates.
+    if (p.z > 0 && now - pressStarted >= TOUCH_SETTLE_MS) {
+      sumX += p.x;
+      sumY += p.y;
+      readings++;
+    }
+    return;
+  }
+
+  if (pressStarted == 0 || now - lastSeen < TOUCH_RELEASE_MS) {
+    return;
+  }
+
+  pressStarted = 0;
+  if (readings == 0) {
+    return;
+  }
+
+  int y = constrain(map(sumY / readings, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, SCREEN_H - 1), 0, SCREEN_H - 1);
+  int r = (y - HEADER_H) / ROW_H;
+  if (y < HEADER_H || r >= drawnCount) {
+    return;
+  }
+
+  // Outline the row: white when a watcher took the tap, grey when none listens.
+  bool sent = sendTap(drawnRows[r]);
+  Serial.printf("Tap row %d %s %s: %s\n", r, drawnRows[r].source, drawnRows[r].key, sent ? "sent" : "no watcher");
+  tft.drawRect(0, HEADER_H + r * ROW_H, SCREEN_W, ROW_H, sent ? TFT_WHITE : COLOR_GREY);
+  holdUntil = now + TAP_FLASH_MS;
+  dirty = true;
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -435,6 +618,10 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
   drawHeader();
 
+  touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
+  touch.begin(touchSPI);
+  touch.setRotation(1);
+
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
   WiFi.setAutoReconnect(true);
@@ -446,6 +633,7 @@ void setup() {
   server.on("/", HTTP_GET, handleDump);
   server.on("/screen.bmp", HTTP_GET, handleScreen);
   server.begin();
+  tapServer.begin();
   Serial.println("cheap-rex-display started");
 }
 
@@ -466,6 +654,9 @@ void loop() {
   }
 
   server.handleClient();
+  acceptTapClient();
+  pingTapClients();
+  checkTouch();
   updateLed();
 
   // A source goes stale with time alone, without a request, so watch for it.
@@ -483,7 +674,7 @@ void loop() {
     dirty = true;
   }
 
-  if (dirty && millis() - lastDraw >= REDRAW_MS) {
+  if (dirty && millis() - lastDraw >= REDRAW_MS && (long)(millis() - holdUntil) >= 0) {
     dirty = false;
     lastDraw = millis();
     drawHeader();
