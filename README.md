@@ -70,7 +70,9 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 
 ## Firmware
 
-`firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first.
+`firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first. The agent that has waited the longest is listed first among other agents that are also waiting.
+
+Each row shows at its right edge how long the agent has been in its current state, such as `4m` or `1h 12m`. Rows in a state for less than a minute show no time. The time counts from the last change of state, so heartbeats and new messages in the same state don't reset it.
 
 The LED speaks for each agent that waits for you, one after another, then pauses:
 

@@ -125,6 +125,8 @@ struct Source {
 struct Row {
   char source[16];
   char key[80];
+  int entry;    // index into entries, for redrawing the row alone
+  char age[8];  // the time shown at the right, "" under a minute
 };
 
 // Kept apart from sources: an open tap request must not make the board
@@ -422,7 +424,7 @@ void handleDump() {
       out += String(" (") + e.kind + ")";
     }
 
-    out += String(" | ") + e.msg + " | " + e.key + "\n";
+    out += String(" | ") + e.msg + " | " + e.key + " | for " + (millis() - e.since) / 1000 + " s\n";
   }
   server.send(200, "text/plain", out.isEmpty() ? String("empty\n") : out);
 }
@@ -646,6 +648,59 @@ bool listed(const int *order, int count, const Entry &e) {
   return false;
 }
 
+// How long a row has been in its state: "4m", "1h 12m", "2d 3h", or "" under a minute.
+void formatAge(unsigned long ms, char *out, size_t size) {
+  unsigned long m = ms / 60000;
+  if (m == 0) {
+    out[0] = 0;
+  } else if (m < 60) {
+    snprintf(out, size, "%lum", m);
+  } else if (m < 24 * 60) {
+    snprintf(out, size, "%luh %lum", m / 60, m % 60);
+  } else {
+    snprintf(out, size, "%lud %luh", m / (24 * 60), m / 60 % 24);
+  }
+}
+
+// Draws drawn row r for entry e, clearing it first, so one row can change alone.
+void drawRow(int r, const Entry &e) {
+  int y = HEADER_H + r * ROW_H;
+  bool stale = isStale(e.source);
+  uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
+  uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
+
+  tft.fillRect(0, y, SCREEN_W, ROW_H, TFT_BLACK);
+  tft.fillRect(0, y + 2, 6, ROW_H - 4, chip);
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(chip, TFT_BLACK);
+  String label = e.state == BLOCKED && e.kind[0] ? String(e.kind) : String(stateNames[e.state]);
+  tft.drawString(label, 10, y + ROW_H / 2, 2);
+  tft.setTextColor(text, TFT_BLACK);
+  String who = String(e.session) + " " + e.app;
+  tft.drawString(who, 86, y + ROW_H / 2, 2);
+
+  // The time sits at the right edge; the message gets what is left, cut to fit.
+  char *age = drawnRows[r].age;
+  formatAge(millis() - e.since, age, sizeof(drawnRows[r].age));
+  int right = SCREEN_W - 2;
+  if (age[0]) {
+    tft.setTextColor(COLOR_GREY, TFT_BLACK);
+    tft.setTextDatum(MR_DATUM);
+    tft.drawString(age, SCREEN_W - 3, y + ROW_H / 2, 2);
+    tft.setTextDatum(ML_DATUM);
+    right = SCREEN_W - 3 - tft.textWidth(age, 2) - 8;
+  }
+
+  String msg = e.msg;
+  int msgX = 86 + tft.textWidth(who + "  ", 2);
+  while (msg.length() > 0 && msgX + tft.textWidth(msg, 2) > right) {
+    msg.remove(msg.length() - 1);
+  }
+
+  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  tft.drawString(msg, msgX, y + ROW_H / 2, 2);
+}
+
 void drawRows() {
   // Indices of used entries, most urgent first, one per pane.
   // A program can report several records (opencode sends one for the pane and one
@@ -657,6 +712,20 @@ void drawRows() {
         order[count++] = i;
       }
     }
+  }
+
+  // Among blocked rows, the one that has waited longest comes first.
+  unsigned long now = millis();
+  int blocked = 0;
+  while (blocked < count && entries[order[blocked]].state == BLOCKED) {
+    blocked++;
+  }
+  for (int i = 1; i < blocked; i++) {
+    int idx = order[i], j = i;
+    for (; j > 0 && now - entries[order[j - 1]].since < now - entries[idx].since; j--) {
+      order[j] = order[j - 1];
+    }
+    order[j] = idx;
   }
 
   int rows = (SCREEN_H - HEADER_H) / ROW_H;
@@ -680,30 +749,28 @@ void drawRows() {
     const Entry &e = entries[order[r]];
     strlcpy(drawnRows[r].source, e.source, sizeof(drawnRows[r].source));
     strlcpy(drawnRows[r].key, e.key, sizeof(drawnRows[r].key));
+    drawnRows[r].entry = order[r];
     drawnCount = r + 1;
-    bool stale = isStale(e.source);
-    uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
-    uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
+    drawRow(r, e);
+  }
+}
 
-    tft.fillRect(0, y + 2, 6, ROW_H - 4, chip);
-    tft.setTextDatum(ML_DATUM);
-    tft.setTextColor(chip, TFT_BLACK);
-    String label = e.state == BLOCKED && e.kind[0] ? String(e.kind) : String(stateNames[e.state]);
-    tft.drawString(label, 10, y + ROW_H / 2, 2);
-    tft.setTextColor(text, TFT_BLACK);
-    String who = String(e.session) + " " + e.app;
-    tft.drawString(who, 86, y + ROW_H / 2, 2);
+// Times change with the clock alone. Checked once a second, and only rows
+//  whose text changed are redrawn, so the list doesn't flicker every minute.
+void refreshAges() {
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < 1000) {
+    return;
+  }
 
-    // The message gets what is left of the row, cut to fit.
-    String msg = e.msg;
-    int msgX = 86 + tft.textWidth(who + "  ", 2);
-
-    while (msg.length() > 0 && msgX + tft.textWidth(msg, 2) > SCREEN_W - 2) {
-      msg.remove(msg.length() - 1);
+  lastCheck = millis();
+  char age[8];
+  for (int r = 0; r < drawnCount; r++) {
+    const Entry &e = entries[drawnRows[r].entry];
+    formatAge(millis() - e.since, age, sizeof(age));
+    if (strcmp(age, drawnRows[r].age) != 0) {
+      drawRow(r, e);
     }
-
-    tft.setTextColor(COLOR_GREY, TFT_BLACK);
-    tft.drawString(msg, msgX, y + ROW_H / 2, 2);
   }
 }
 
@@ -1005,10 +1072,16 @@ void loop() {
     dirty = true;
   }
 
-  if (dirty && millis() - lastDraw >= REDRAW_MS && (long)(millis() - holdUntil) >= 0) {
+  if ((long)(millis() - holdUntil) < 0) {
+    return;
+  }
+
+  if (dirty && millis() - lastDraw >= REDRAW_MS) {
     dirty = false;
     lastDraw = millis();
     drawHeader();
     drawRows();
+  } else if (!dirty) {
+    refreshAges();
   }
 }
