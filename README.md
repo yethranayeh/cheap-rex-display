@@ -72,7 +72,13 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 
 `firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first.
 
-The LED pulses red while an agent is blocked.
+The LED speaks for each agent that waits for you, one after another, then pauses:
+
+- **permission**: a quick red double blink
+- **question**: a long amber pulse
+- **auth**: a long orange pulse
+
+If nobody is waiting, it glows green for a moment when an agent finishes, breathes blue while agents work, and stays magenta on an error. `LedStyle` in the firmware switches each of these: one signal for all instead of one per agent, a single red pulse instead of the double blink (or the double only after a few minutes), steady blue, steady green.
 
 On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my drawing. The the header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
 

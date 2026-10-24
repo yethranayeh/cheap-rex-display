@@ -1,8 +1,9 @@
 // cheap-rex-display firmware.
 //
 // Joins your Wi-Fi as crd.local and lists the agent status it is sent over
-//  HTTP, most urgent first. The RGB LED shows the most urgent state and pulses
-//  red while an agent waits for you. Display only: nothing here can answer or
+//  HTTP, most urgent first. The RGB LED blinks once for each agent that waits
+//  for you, in the color of what it waits for, and otherwise shows the most
+//  urgent state (see LedStyle). Display only: nothing here can answer or
 //  approve anything in an agent session.
 //
 // HTTP API, form or query parameters, all plain text:
@@ -95,6 +96,22 @@ struct Entry {
   char kind[12];
   char msg[64];
   State state;
+  unsigned long since;  // when it last changed state
+};
+
+// How the LED speaks. The defaults were picked on the board; a settings
+//  screen can change them while it runs.
+struct LedStyle {
+  bool countBlocked;     // one signal per blocked agent, up to 4, instead of one for all
+  int doubleAfterMin;    // permission blinks twice ("._.") once it waited this long: 0 at once, -1 never
+  bool workingBreathes;  // slow blue breathing while agents work, else steady dim blue
+  bool doneGlows;        // a green glow when an agent finishes, then the LED moves on; else steady green
+};
+
+// One LED pulse: lit for `on` ms with a smooth rise and fall, then dark for `after` ms
+struct Pulse {
+  uint8_t r, g, b;
+  uint16_t on, after;
 };
 
 struct Source {
@@ -127,6 +144,8 @@ SPIClass touchSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
 WebServer server(80);
 NetworkServer tapServer(TAP_PORT);
+LedStyle ledStyle = {true, 0, true, true};
+unsigned long doneAt = 0;  // when an agent last finished, for the green glow
 bool dirty = true;
 unsigned long lastDraw = 0;
 unsigned long holdUntil = 0;  // a tapped row's outline stays up until then
@@ -249,6 +268,13 @@ void handleStatus() {
     server.send(507, "text/plain", "full\n");
     return;
   }
+  if (!slot->used || slot->state != state) {
+    slot->since = millis();
+    if (state == DONE) {
+      doneAt = millis();
+    }
+  }
+
   slot->used = true;
   strlcpy(slot->source, src, sizeof(slot->source));
   strlcpy(slot->key, k, sizeof(slot->key));
@@ -445,24 +471,113 @@ void setLed(uint8_t r, uint8_t g, uint8_t b) {
   ledcWrite(LED_BLUE, 255 - b);
 }
 
+// A color at brightness 0..1, squared so fades look even to the eye
+void setLevel(uint8_t r, uint8_t g, uint8_t b, float v) {
+  v = constrain(v, 0.0f, 1.0f);
+  v *= v;
+  setLed(r * v, g * v, b * v);
+}
+
+// One smooth rise from 0 to 1 and fall back over `ms`
+float bump(unsigned long t, unsigned long ms) {
+  return t < ms ? sinf(PI * t / ms) : 0;
+}
+
+bool listed(const int *order, int count, const Entry &e);
+
+// The pulses for the blocked agents, one pane each: permission first (a short
+//  red pulse, or a double blink), then question (long amber), then auth (long
+//  orange). Returns how many it wrote, at most 8.
+int blockedPattern(Pulse *out) {
+  int panes[MAX_ENTRIES], paneCount = 0, n = 0;
+  int maxAgents = ledStyle.countBlocked ? 4 : 1;
+
+  for (int rank = 0; rank < 3; rank++) {
+    for (int i = 0; i < MAX_ENTRIES && paneCount < maxAgents; i++) {
+      const Entry &e = entries[i];
+      if (!e.used || e.state != BLOCKED || isStale(e.source) || listed(panes, paneCount, e)) {
+        continue;
+      }
+
+      int kindRank = strcmp(e.kind, "question") == 0 ? 1 : strcmp(e.kind, "auth") == 0 ? 2 : 0;
+      if (kindRank != rank) {
+        continue;
+      }
+
+      panes[paneCount++] = i;
+      if (rank == 1) {
+        out[n++] = {255, 150, 0, 900, 400};
+      } else if (rank == 2) {
+        out[n++] = {255, 70, 0, 900, 400};
+      } else if (ledStyle.doubleAfterMin >= 0 && millis() - e.since >= ledStyle.doubleAfterMin * 60000UL) {
+        out[n++] = {255, 0, 0, 130, 120};
+        out[n++] = {255, 0, 0, 130, 450};
+      } else {
+        out[n++] = {255, 0, 0, 300, 400};
+      }
+    }
+  }
+
+  // A pause before the next round
+  if (n > 0) {
+    out[n - 1].after = 1600;
+  }
+  return n;
+}
+
 void updateLed() {
+  static Pulse pattern[8];
+  static int pulses = 0;
+  static unsigned long cycleStart = 0, cycleMs = 0;
+  unsigned long now = millis();
+
+  // The pattern changes only between rounds, so no pulse breaks off midway.
+  if (now - cycleStart >= cycleMs) {
+    pulses = blockedPattern(pattern);
+    cycleStart = now;
+    cycleMs = 0;
+    for (int i = 0; i < pulses; i++) {
+      cycleMs += pattern[i].on + pattern[i].after;
+    }
+  }
+
+  if (pulses > 0) {
+    unsigned long t = now - cycleStart;
+    for (int i = 0; i < pulses; i++) {
+      const Pulse &p = pattern[i];
+      if (t < p.on + p.after) {
+        setLevel(p.r, p.g, p.b, bump(t, p.on));
+        return;
+      }
+      t -= p.on + p.after;
+    }
+  }
+
   int best = STATE_COUNT;
   for (auto &e : entries) {
-    if (e.used && !isStale(e.source) && e.state < best) {
+    if (e.used && !isStale(e.source) && e.state < best && !(e.state == DONE && ledStyle.doneGlows)) {
       best = e.state;
     }
   }
 
+  // Up quickly, held for a moment, then down slowly
+  unsigned long sinceDone = now - doneAt;
+  if (best != ERROR_ && ledStyle.doneGlows && doneAt != 0 && sinceDone < 1600) {
+    float v = sinceDone < 200 ? sinceDone / 200.0f : sinceDone < 1100 ? 1 : (1600 - sinceDone) / 500.0f;
+    setLevel(0, 120, 0, v);
+    return;
+  }
+
   switch (best) {
-    case BLOCKED: {
-      // Pulse, so a waiting agent catches the eye.
-      uint8_t level = (millis() / 4) % 512;
-      setLed(level < 256 ? level : 511 - level, 0, 0);
-      break;
-    }
     case ERROR_:  setLed(120, 0, 120); break;
     case DONE:    setLed(0, 60, 0); break;
-    case WORKING: setLed(0, 0, 25); break;
+    case WORKING:
+      if (ledStyle.workingBreathes) {
+        setLevel(0, 0, 70, 0.25f + 0.75f * (0.5f - 0.5f * cosf(2 * PI * now / 4000)));
+      } else {
+        setLed(0, 0, 25);
+      }
+      break;
     default:      setLed(0, 0, 0);
   }
 }
