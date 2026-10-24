@@ -9,6 +9,8 @@
 
 A cheap [Rex](https://www.superlogical.com/rex/docs/installation) display for coding agents. It shows the agents running in Rex sessions on a Cheap Yellow Display (CYD) device.
 
+> Not affiliated with or endorsed by Superlogical. The Rex drawing is meant as a tribute.
+
 When an agent stops to wait for you, the LED pulses red so you know your agent is in big trouble or just has a few blockers that you need to clear:
 
 <p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852978/opencode-status-cycle_r6f1ad.webp" alt="opencode going from idle to working to permission and back, with the LED following" width="320"></p>
@@ -71,6 +73,8 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 `firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first.
 
 The LED pulses red while an agent is blocked.
+
+On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my drawing. The the header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
 
 <p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852972/opencode-permission-led_ymwmer.webp" alt="opencode asks for permission on the Mac, and the board shows it on top with the LED turning red" width="480"></p>
 

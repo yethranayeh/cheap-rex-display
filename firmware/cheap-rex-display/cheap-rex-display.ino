@@ -29,8 +29,22 @@
 #include <TFT_eSPI.h>             // settings from config/TFT_eSPI/User_Setup.h, see the README
 #include <XPT2046_Touchscreen.h>
 #include "secrets.h"              // WIFI_SSID and WIFI_PASSWORD, from secrets.h.example
+#include "rex_art.h"
 
 #define HOSTNAME "crd"
+
+// Rex at the left of the header: REX_PIXEL, REX_SOFT or REX_BOLD
+#define HEADER_REX REX_PIXEL
+
+// Boot splash: Rex traces himself while Wi-Fi connects, then the words are
+//  written in. It waits for Wi-Fi up to SPLASH_MAX_MS, and a tap skips it.
+#define SPLASH_REX_X 22
+#define SPLASH_REX_Y 52
+#define SPLASH_REX_H 136
+#define SPLASH_TRACE_MS 3200
+#define SPLASH_WORD_MS 360
+#define SPLASH_HOLD_MS 1500
+#define SPLASH_MAX_MS 10000
 #define TAP_PORT 81
 #define PING_MS 15000
 
@@ -453,12 +467,32 @@ void updateLed() {
   }
 }
 
+// Coverage 0..15 of one pixel of a 4-bit bitmap
+uint8_t level(const Bitmap4 &b, int x, int y) {
+  uint8_t v = b.px[y * ((b.w + 1) / 2) + x / 2];
+  return x & 1 ? v & 0x0F : v >> 4;
+}
+
+// Draws a 4-bit bitmap in white over a plain background of r, g, b.
+void drawBlended(const Bitmap4 &bmp, int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+  for (int yy = 0; yy < bmp.h; yy++) {
+    for (int xx = 0; xx < bmp.w; xx++) {
+      uint8_t a = level(bmp, xx, yy);
+      if (a > 0) {
+        tft.drawPixel(x + xx, y + yy, tft.color565(r + (255 - r) * a / 15, g + (255 - g) * a / 15, b + (255 - b) * a / 15));
+      }
+    }
+  }
+}
+
 void drawHeader() {
   tft.fillRect(0, 0, SCREEN_W, HEADER_H, TFT_DARKGREY);
+  // TFT_DARKGREY is 123, 125, 123
+  drawBlended(HEADER_REX, 3, (HEADER_H - HEADER_REX.h) / 2, 123, 125, 123);
   tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
   tft.setTextDatum(ML_DATUM);
   String text = WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting...");
-  tft.drawString(text, 4, HEADER_H / 2, 2);
+  tft.drawString(text, 3 + HEADER_REX.w + 5, HEADER_H / 2, 2);
   // Sources at the right: white while live, black when stale.
   int x = SCREEN_W - 4;
   tft.setTextDatum(MR_DATUM);
@@ -605,6 +639,139 @@ void checkTouch() {
   dirty = true;
 }
 
+// A new press on the touch screen, for skipping the splash
+bool tapped() {
+  static bool down = false;
+  bool now = touch.touched();
+  bool edge = now && !down;
+  down = now;
+  return edge;
+}
+
+// The splash's bottom line: Wi-Fi progress, then the board's address.
+void splashStatus(unsigned long start) {
+  static String shown;
+  String text = WiFi.status() == WL_CONNECTED
+      ? String(HOSTNAME ".local ") + WiFi.localIP().toString()
+      : String("Wi-Fi connecting") + String("...").substring(0, (millis() - start) / 333 % 3 + 1);
+  if (text == shown) {
+    return;
+  }
+
+  shown = text;
+  tft.fillRect(0, SCREEN_H - 22, SCREEN_W, 22, TFT_BLACK);
+  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  tft.setTextDatum(ML_DATUM);
+  tft.drawString(text, 8, SCREEN_H - 12, 2);
+}
+
+// Rex's strokes taken as one path, `walk` is called for
+//  each straight piece in screen pixels with its length.
+template <typename F>
+void walkRex(F walk) {
+  const float s = SPLASH_REX_H / REX_H;
+  for (const Stroke &st : STROKES) {
+    for (int i = 1; i < st.n; i++) {
+      float x0 = SPLASH_REX_X + st.pts[i - 1][0] * s, y0 = SPLASH_REX_Y + st.pts[i - 1][1] * s;
+      float x1 = SPLASH_REX_X + st.pts[i][0] * s, y1 = SPLASH_REX_Y + st.pts[i][1] * s;
+      walk(x0, y0, x1, y1, hypotf(x1 - x0, y1 - y0));
+    }
+  }
+}
+
+// Draws the stretch of Rex's path from length `from` to `to`,
+//  stamping 2x2 pixels every half pixel along it.
+void traceRex(float from, float to) {
+  const float offset = REX_PEN * SPLASH_REX_H / REX_H / 2;
+  float walked = 0;
+
+  walkRex([&](float x0, float y0, float x1, float y1, float seg) {
+    float a = max(from - walked, 0.0f), b = min(to - walked, seg);
+    walked += seg;
+
+    if (b <= a) {
+      return;
+    }
+
+    int n = max(1, (int)ceilf((b - a) / 0.5f));
+    for (int k = 0; k <= n; k++) {
+      float d = a + (b - a) * k / n;
+      tft.fillRect(lroundf(x0 + (x1 - x0) * d / seg - offset), lroundf(y0 + (y1 - y0) * d / seg - offset), 2, 2, TFT_WHITE);
+    }
+  });
+}
+
+// Draws columns [c0, c1) of a 1-bit bitmap in white
+void drawColumns(const Bitmap1 &b, int x, int y, int c0, int c1) {
+  int rowBytes = (b.w + 7) / 8;
+
+  for (int xx = c0; xx < c1; xx++) {
+    for (int yy = 0; yy < b.h; yy++) {
+      if (b.px[yy * rowBytes + xx / 8] & (0x80 >> (xx % 8))) {
+        tft.drawPixel(x + xx, y + yy, TFT_WHITE);
+      }
+    }
+  }
+}
+
+// Returns once Wi-Fi has been up for SPLASH_HOLD_MS, after
+//  SPLASH_MAX_MS, or on a tap.
+void splash() {
+  unsigned long start = millis();
+  tft.fillScreen(TFT_BLACK);
+  bool skipped = false;
+
+  float total = 0, drawn = 0;
+  walkRex([&](float, float, float, float, float seg) { total += seg; });
+
+  while (!skipped && drawn < total) {
+    // Slow at first, like a pen finding its line
+    float t = min(1.0f, (millis() - start) / (float)SPLASH_TRACE_MS);
+    float to = total * powf(t, 1.6f);
+    traceRex(drawn, to);
+    drawn = to;
+    splashStatus(start);
+    skipped = tapped();
+    delay(5);
+  }
+
+  struct { const Bitmap1 &b; int x, y; } words[] = {{WORD_CHEAP, 172, 66}, {WORD_REX, 176, 106}, {WORD_DISPLAY, 172, 148}};
+
+  for (auto &w : words) {
+    unsigned long wordStart = millis();
+    int done = 0;
+    while (!skipped && done < w.b.w) {
+      int upto = min(w.b.w, (int)((millis() - wordStart) * w.b.w / SPLASH_WORD_MS) + 1);
+      drawColumns(w.b, w.x, w.y, done, upto);
+      done = upto;
+      splashStatus(start);
+      skipped = tapped();
+      delay(10);
+    }
+  }
+
+  unsigned long upSince = 0;
+  while (!skipped && millis() - start < SPLASH_MAX_MS) {
+    if (WiFi.status() == WL_CONNECTED) {
+      if (upSince == 0) {
+        upSince = millis();
+      } else if (millis() - upSince >= SPLASH_HOLD_MS) {
+        break;
+      }
+    }
+
+    splashStatus(start);
+    skipped = tapped();
+    delay(10);
+  }
+
+  // Let go first, so the skipping tap doesn't land on a row.
+  while (touch.touched()) {
+    delay(10);
+  }
+  tft.fillScreen(TFT_BLACK);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -616,7 +783,6 @@ void setup() {
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
-  drawHeader();
 
   touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSPI);
@@ -631,6 +797,7 @@ void setup() {
     Serial.printf("Wi-Fi lost, reason %d\n", info.wifi_sta_disconnected.reason);
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  splash();
 
   server.on("/status", HTTP_POST, handleStatus);
   server.on("/heartbeat", HTTP_POST, handleHeartbeat);
