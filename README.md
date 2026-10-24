@@ -1,6 +1,11 @@
 # cheap-rex-display
 
-<p align="center"><img title="The skillful retracing of the Rex icon, carefully handcrafted on paper." src="assets/cheap-rex-display-logo.jpg" alt="Superlogical's Rex, drawn by hand in pen on paper" width="320"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/banner-dark.svg">
+    <img title="The skillful retracing of the Rex icon, carefully handcrafted on paper" src="assets/branding/banner-light.svg" alt="Cheap Rex Display, traced and drawn by hand in pen on Superlogical's Rex" width="560">
+  </picture>
+</p>
 
 A cheap [Rex](https://www.superlogical.com/rex/docs/installation) display for coding agents. It shows the agents running in Rex sessions on a Cheap Yellow Display (CYD) device.
 
@@ -108,6 +113,8 @@ The board keeps everything in memory, so a restart empties it. When that happens
 If a Rex server goes quiet for 60 seconds, for example a laptop that went to sleep, its rows turn grey and its name in the header turns black. Grey rows don't light the LED.
 
 Tap a row to bring its pane to the front: the Rex app switches to that session and tab. The row flashes a white outline when its watcher took the tap, and a grey one when no watcher is listening. The script keeps a request open to the board's port 81 for this (`GET /taps?source=<name>`), and opens it again on the next heartbeat if it drops.
+
+<p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852972/tap-to-focus_qsetsf.webp" alt="Tapping rows on the board, and the Rex app on the monitor behind it switching to each one's pane, including one on another server" width="640"></p>
 
 ### Several Rex servers
 
