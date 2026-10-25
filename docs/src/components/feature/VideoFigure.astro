@@ -8,15 +8,16 @@ interface Props {
 	height: number;
 	alt: string;
 	caption: string;
+	class?: string;
 }
 
-const { id, width, height, alt, caption } = Astro.props;
+const { id, width, height, alt, caption, class: className } = Astro.props;
 ---
 
-<figure class='mt-12 text-center'>
+<figure class:list={["min-w-0", className]}>
 	{/* The uploads are HEVC, so vc_h264 is used for browser compatibility */}
 	<video
-		class='mx-auto block h-auto max-w-full rounded-lg bg-ink'
+		class='block h-auto w-full rounded-lg border border-border bg-ink'
 		src={mediaSrc(`vc_h264/${id}.mp4`, "video")}
 		poster={mediaSrc(`so_0/${id}.jpg`, "video")}
 		width={width}
@@ -26,5 +27,5 @@ const { id, width, height, alt, caption } = Astro.props;
 		loop
 		playsinline
 		aria-label={alt}></video>
-	<figcaption class='mt-2 text-sm text-muted-foreground'>{caption}</figcaption>
+	<figcaption class='mt-2.5 text-sm leading-normal text-muted-foreground'>{caption}</figcaption>
 </figure>
