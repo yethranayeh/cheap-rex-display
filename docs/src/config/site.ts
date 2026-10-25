@@ -1,3 +1,10 @@
+const cloudinary = "https://res.cloudinary.com/drwbqceye";
+
+export type MediaKind = "image" | "video";
+
+export const mediaSrc = (path: string, kind: MediaKind = "image") =>
+  `${cloudinary}/${kind}/upload/${path}`;
+
 export const site = {
   name: "Cheap Rex Display",
   title: "Cheap Rex Display: a status screen for your coding agents",
@@ -12,5 +19,4 @@ export const site = {
     releases: "https://github.com/yethranayeh/cheap-rex-display/releases",
     rex: "https://www.superlogical.com/rex/docs/installation",
   },
-  media: "https://res.cloudinary.com/drwbqceye/video/upload",
 } as const;

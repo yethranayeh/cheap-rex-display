@@ -1,0 +1,58 @@
+---
+import type { Note } from "./notes";
+
+interface Props {
+	notes: Note[];
+	intro?: string;
+}
+
+const { notes, intro } = Astro.props;
+---
+
+<section class='mt-14 border-t-2 border-mint/50 pt-6' aria-labelledby='notes-title'>
+	<h2 id='notes-title' class='mb-1.5 text-xl font-[650]'>Notes</h2>
+	{intro && <p class='mb-4 text-sm text-muted-foreground'>{intro}</p>}
+
+	<ol class='m-0 flex list-none flex-col gap-3 p-0'>
+		{
+			notes.map((note) => (
+				<li
+					class='group scroll-mt-8 overflow-hidden rounded-sm border border-border border-t-2 border-t-lavender/50 bg-surface transition-colors duration-[180ms] target:border-mint target:bg-surface-raised focus:outline-none motion-reduce:transition-none'
+					id={note.id}
+					tabindex='-1'>
+					<div class='flex items-center gap-1.5 border-b border-border px-[0.7rem] py-2'>
+						<span class='inline-flex size-5 items-center justify-center rounded-sm bg-lavender/15 font-mono text-xs font-bold leading-none text-lavender transition-colors duration-[180ms] group-target:bg-mint group-target:text-primary-foreground motion-reduce:transition-none'>
+							{note.n}
+						</span>
+						<span class='truncate text-xs text-muted-foreground'>{note.title}</span>
+						<a
+							class='ml-auto -mr-1 inline-flex size-6 items-center justify-center rounded-full text-sm text-muted-foreground no-underline transition-colors duration-150 hover:bg-foreground/10 hover:text-mint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none'
+							href={`#${note.ref}`}
+							aria-label={`Back to the text from note ${note.n}`}>
+							↩
+						</a>
+					</div>
+					<figure class='m-0 flex flex-col gap-3 p-3 sm:flex-row sm:items-start'>
+						<a
+							class='group/thumb shrink-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+							href={note.image.src}
+							target='_blank'
+							rel='noreferrer'
+							aria-label={`Open the full screenshot for note ${note.n}`}>
+							<img
+								class='block size-40 rounded-sm border border-border bg-ink object-contain transition-colors group-hover/thumb:border-foreground motion-reduce:transition-none'
+								src={note.image.src}
+								alt={note.image.alt}
+								width={note.image.width}
+								height={note.image.height}
+								loading='lazy'
+								decoding='async'
+							/>
+						</a>
+						<figcaption class='m-0 text-sm leading-normal text-muted-foreground'>{note.caption}</figcaption>
+					</figure>
+				</li>
+			))
+		}
+	</ol>
+</section>

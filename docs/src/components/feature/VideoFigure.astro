@@ -1,5 +1,5 @@
 ---
-import { site } from "../../config/site";
+import { mediaSrc } from "../../config/site";
 
 interface Props {
 	/** Cloudinary public id */
@@ -17,8 +17,8 @@ const { id, width, height, alt, caption } = Astro.props;
 	{/* The uploads are HEVC, so vc_h264 is used for browser compatibility */}
 	<video
 		class='mx-auto block h-auto max-w-full rounded-lg bg-ink'
-		src={`${site.media}/vc_h264/${id}.mp4`}
-		poster={`${site.media}/so_0/${id}.jpg`}
+		src={mediaSrc(`vc_h264/${id}.mp4`, "video")}
+		poster={mediaSrc(`so_0/${id}.jpg`, "video")}
 		width={width}
 		height={height}
 		autoplay

@@ -1,15 +1,19 @@
 ---
-import BaseLayout from "../layouts/BaseLayout.astro";
-import SiteHeader from "../components/feature/SiteHeader.astro";
-import SiteFooter from "../components/feature/SiteFooter.astro";
-import BrowserSupport from "../components/feature/BrowserSupport.astro";
-import Button from "../components/ui/Button.astro";
-import Highlight from "../components/ui/Highlight.astro";
-import Link from "../components/ui/Link.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import SiteHeader from "../../components/feature/SiteHeader.astro";
+import SiteFooter from "../../components/feature/SiteFooter.astro";
+import BrowserSupport from "../../components/feature/BrowserSupport.astro";
+import NoteLink from "../../components/feature/NoteLink.astro";
+import Notes from "../../components/feature/Notes.astro";
+import Button from "../../components/ui/Button.astro";
+import Highlight from "../../components/ui/Highlight.astro";
+import Link from "../../components/ui/Link.astro";
+import Thumbnail from "../../components/ui/Thumbnail.astro";
 
-import { site } from "../config/site";
-import { webSerial } from "../config/browser-support";
-import { firmware, manifestPath } from "../config/firmware";
+import { site } from "../../config/site";
+import { webSerial } from "../../config/browser-support";
+import { firmware, manifestPath } from "../../config/firmware";
+import { installNotes, installThumbnail, sameVersionNote } from "./_media";
 
 const readme = (anchor: string) => `${site.links.repo}#${anchor}`;
 const merged = firmware?.merged.file ?? "cheap-rex-display-VERSION-merged.bin";
@@ -44,7 +48,9 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 			firmware ? (
 				<>
 					<BrowserSupport support={webSerial} note='For the ESP32-2432S028 board'>
-						<esp-web-install-button manifest={manifestPath} class='block'>
+						<esp-web-install-button
+							manifest={manifestPath}
+							class='block [&:not(:defined)>:not([slot=activate])]:hidden'>
 							<Button slot='activate' class='w-full' data-install>
 								Install {firmware.version}
 							</Button>
@@ -126,7 +132,10 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 				Press Install and pick the board's port. It has a <strong>CH340</strong> chip, so look for{" "}
 				<Highlight>USB Serial</Highlight>, <Highlight>CH340</Highlight> or <Highlight>wchusbserial</Highlight>.
 			</li>
-			<li>Confirm, and keep it plugged in while it writes.</li>
+			<li class='relative'>
+				Confirm, and keep it plugged in while it writes.
+				<Thumbnail {...installThumbnail} />
+			</li>
 			<li>
 				When it asks, pick your network and enter its password. The board only sees 2.4 GHz networks. It joins, saves
 				the network and restarts, then shows its address in the header.
@@ -142,9 +151,9 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 		<h2 class='mt-12 mb-3 text-xl font-[650]'>Already running it?</h2>
 		<p class='mb-4'>The installer asks the board what it runs before it writes anything.</p>
 		<ul class='list-disc space-y-2 pl-6'>
-			<li>
+			<li id='running-1' class='group/note scroll-mt-8 focus:outline-none' tabindex='-1'>
 				<strong>Same version:</strong> there is nothing to install. It offers Wi-Fi setup, the logs, or erase user data, which
-				erases the whole flash, Wi-Fi included, and installs it again.
+				erases the whole flash, Wi-Fi included, and installs it again.<NoteLink note={sameVersionNote} />
 			</li>
 			<li>
 				<strong>Another version:</strong> it offers an update. That writes only the four files, so the board keeps its Wi-Fi
@@ -198,6 +207,8 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 				>.
 			</li>
 		</ul>
+
+		<Notes notes={installNotes} intro='Mentioned media. Open it for the full size.' />
 	</main>
 
 	<SiteFooter />
@@ -206,10 +217,3 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 <script>
 	import "esp-web-tools/dist/web/install-button.js";
 </script>
-
-<style>
-	/* Until the script defines the button, its fallback lines would show next to it */
-	esp-web-install-button:not(:defined) > :not([slot="activate"]) {
-		display: none;
-	}
-</style>

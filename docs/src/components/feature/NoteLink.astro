@@ -1,0 +1,37 @@
+---
+import type { Note } from "./notes";
+import PreviewCard from "../ui/PreviewCard.astro";
+
+interface Props {
+	note: Note;
+}
+
+const { note } = Astro.props;
+const captionId = `note-preview-caption-${note.n}`;
+---
+
+<span class='note-ref group/preview relative inline' data-preview-root data-note-ref>
+	<a
+		class='note-marker relative ml-1 inline-flex h-[1.2rem] min-w-[1.2rem] -translate-y-[0.3em] items-center justify-center rounded-full border border-mint/40 bg-mint/10 px-[0.3rem] font-mono text-[0.625rem] font-[650] leading-none text-mint no-underline transition-[background-color,border-color,color,scale] duration-150 after:absolute after:-inset-[0.3rem] after:content-[""] hover:border-mint hover:bg-mint hover:text-primary-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.94] group-data-[open]/preview:border-mint group-data-[open]/preview:bg-mint group-data-[open]/preview:text-primary-foreground group-target/note:border-mint group-target/note:bg-mint group-target/note:text-primary-foreground pointer-coarse:h-6 pointer-coarse:min-w-6 motion-reduce:transition-none'
+		href={`#${note.id}`}
+		aria-label={note.label}
+		aria-describedby={captionId}
+		data-preview-trigger><span aria-hidden='true'>{note.n}</span></a
+	>
+
+	<PreviewCard
+		id={`note-preview-${note.n}`}
+		role='note'
+		kicker={`Fig. ${note.n}`}
+		title={note.title}
+		image={note.image}
+		caption={note.preview}
+		captionId={captionId}
+		label={`Preview of note ${note.n}: ${note.title}`}
+		link={{ href: `#${note.id}`, label: `Read note ${note.n}` }}
+		class='note-preview'
+		headClass='note-preview-head'
+		imageClass='note-preview-image'
+		captionClass='note-preview-caption'
+	/>
+</span>

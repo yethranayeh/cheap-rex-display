@@ -69,6 +69,11 @@
 	--radius-lg: 0.875rem;
 
 	--container-page: 45rem;
+
+	/* Floating preview cards (thumbnails, note previews) */
+	--shadow-card:
+		0 24px 48px -20px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.25),
+		inset 0 1px 0 color-mix(in oklab, var(--color-foreground) 7%, transparent);
 }
 
 /*

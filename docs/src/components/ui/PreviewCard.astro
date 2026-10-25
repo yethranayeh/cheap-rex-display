@@ -1,0 +1,97 @@
+---
+interface Props {
+	id: string;
+	role: "note" | "figure";
+	kicker: string;
+	title: string;
+	image: { src: string; alt: string; width: number; height: number };
+	caption: string;
+	/** Optional id for the caption, so a trigger can describe itself with it */
+	captionId?: string;
+	/** Accessible name for the whole card */
+	label: string;
+	accent?: "mint" | "lavender";
+	link?: { href: string; label: string };
+	/** Extra classes for the in-flow thumbnail layout on narrow screens */
+	class?: string;
+	headClass?: string;
+	imageClass?: string;
+	captionClass?: string;
+}
+
+const {
+	id,
+	role,
+	kicker,
+	title,
+	image,
+	caption,
+	captionId,
+	label,
+	accent = "mint",
+	link,
+	class: className,
+	headClass,
+	imageClass,
+	captionClass
+} = Astro.props;
+const accentClass = accent === "mint" ? "text-mint" : "text-lavender";
+---
+
+<span
+	class:list={[
+		"pointer-events-none invisible fixed -top-[9999px] -left-[9999px] z-[60] block w-[min(21rem,calc(100vw-2rem))] max-h-[calc(100vh-2rem)] translate-y-[var(--card-shift,6px)] scale-[0.985] overflow-auto rounded-md border border-border bg-surface-raised p-2 pb-2.5 opacity-0 shadow-card [transform-origin:var(--card-origin,bottom_right)] transition-[opacity,translate,scale,visibility] duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] group-data-[open]/preview:pointer-events-auto group-data-[open]/preview:visible group-data-[open]/preview:translate-y-0 group-data-[open]/preview:scale-100 group-data-[open]/preview:opacity-100 motion-reduce:transition-none",
+		className
+	]}
+	id={id}
+	role={role}
+	aria-label={label}
+	data-preview-card>
+	<span class:list={["flex items-center gap-2 px-0.5 pt-0.5 pb-1.5", headClass]}>
+		<span class:list={["font-mono text-[0.625rem] font-bold tracking-[0.08em] uppercase", accentClass]}>{kicker}</span>
+		<span class='text-xs text-muted-foreground'>{title}</span>
+		<kbd
+			class='ml-auto border-transparent bg-foreground/7 px-1 py-px font-mono text-[0.5625rem] leading-[1.4] text-faint pointer-coarse:hidden'
+			>esc</kbd
+		>
+		<button
+			class='ml-auto hidden size-6 items-center justify-center rounded-full bg-foreground/8 p-0 text-base leading-none text-muted-foreground hover:bg-foreground/14 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-coarse:inline-flex'
+			type='button'
+			aria-label='Close preview'
+			data-preview-close>×</button
+		>
+	</span>
+	<img
+		class:list={["block h-auto w-full rounded-sm border border-border bg-ink", imageClass]}
+		src={image.src}
+		alt={image.alt}
+		width={image.width}
+		height={image.height}
+		loading='lazy'
+		decoding='async'
+	/>
+	<span id={captionId} class:list={["mt-2.5 block px-0.5 text-xs leading-normal text-muted-foreground", captionClass]}
+		>{caption}</span
+	>
+	{
+		link && (
+			<span class='mt-2.5 flex items-center justify-end border-t border-border px-0.5 pt-2 pb-0.5'>
+				<a
+					class:list={[
+						"inline-flex items-center gap-1 text-xs font-semibold no-underline transition-colors duration-150 hover:text-foreground hover:underline hover:decoration-1 hover:underline-offset-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none",
+						accentClass
+					]}
+					href={link.href}>
+					{link.label}
+					<span aria-hidden='true'>↓</span>
+				</a>
+			</span>
+		)
+	}
+</span>
+
+<script>
+	import { initPreviewCards } from "./preview";
+
+	initPreviewCards();
+</script>
