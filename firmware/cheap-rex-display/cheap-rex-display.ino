@@ -50,6 +50,7 @@
 //  Keys:
 //   wifi_ssid    string  saved network
 //   wifi_pass    string  its password
+//   rows_compact bool    compact rows, toggled by the button at the right of the header
 //  Reserved for the settings screen, not read yet:
 //   led_count    bool    LedStyle.countBlocked
 //   led_double   int     LedStyle.doubleAfterMin
@@ -79,6 +80,7 @@
 #define SETTINGS_NAMESPACE "crd"
 #define KEY_WIFI_SSID "wifi_ssid"
 #define KEY_WIFI_PASSWORD "wifi_pass"
+#define KEY_ROWS_COMPACT "rows_compact"
 
 // Joining Wi-Fi. While offline the board starts over every REJOIN_MS. The
 //  hotspot opens once the network in use couldn't be joined for SETUP_AFTER_MS:
@@ -140,13 +142,19 @@
 #define SCREEN_W 320
 #define SCREEN_H 240
 #define HEADER_H 24
-#define ROW_H 24
+#define ROW_H_FINGER 43   // 5 rows; resistive touch wants targets of 40 px or more
+#define ROW_H_COMPACT 24  // 9 rows, for the stylus
+#define PAGE_MS 30000     // a later page goes back to the first after this long untouched
 #define MAX_ENTRIES 32
 #define MAX_SOURCES 4
 #define STALE_MS 60000
 #define REDRAW_MS 200
 
 #define COLOR_GREY 0x7BEF
+#define COLOR_DIVIDER 0x2104
+#define COLOR_BUTTON 0x31A6
+#define PAGE_BUTTON_W 110
+#define TOGGLE_W 40  // the row-size button at the right of the header, and its tap area
 
 // In order of urgency: rows and the LED go by the lowest value.
 enum State { BLOCKED, ERROR_, DONE, WORKING, IDLE, STATE_COUNT };
@@ -227,6 +235,11 @@ unsigned long doneAt = 0;  // when an agent last finished, for the green glow
 bool dirty = true;
 unsigned long lastDraw = 0;
 unsigned long holdUntil = 0;  // a tapped row's outline stays up until then
+bool compactRows = false;
+int page = 0;                 // which page of rows is shown, when they don't all fit
+unsigned long pageAt = 0;     // when the page last changed
+int pageCount = 1;
+int moreSlot = -1;            // the slot that holds the page buttons, or -1 when all rows fit
 
 String wifiSsid, wifiPassword;  // the network in use
 WifiFrom wifiFrom = WIFI_NONE;
@@ -714,10 +727,41 @@ String fitText(String text, int width, int font) {
   return text;
 }
 
+// The row-size button: a little list of the rows a tap switches to, like the
+//  page buttons that show where they go. Four close rows while the rows are
+//  finger-sized, two wide ones while they are compact.
+void drawRowsToggle() {
+  int x = SCREEN_W - TOGGLE_W + 6, w = TOGGLE_W - 9;
+  tft.fillRoundRect(x, 2, w, HEADER_H - 4, 4, COLOR_BUTTON);
+  bool toCompact = !compactRows;
+  int lines = toCompact ? 4 : 2, gap = toCompact ? 4 : 8, thick = toCompact ? 2 : 4;
+  int top = HEADER_H / 2 - ((lines - 1) * gap + thick) / 2;
+  for (int i = 0; i < lines; i++) {
+    int y = top + i * gap;
+    tft.fillRect(x + 5, y, 2, thick, i == 0 ? TFT_RED : TFT_BLUE);
+    tft.fillRect(x + 9, y + thick / 2 - (toCompact ? 1 : 0), w - 14, toCompact ? 1 : 2, TFT_WHITE);
+  }
+}
+
 void drawHeader() {
-  drawBar(WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting..."));
-  // Sources at the right: white while live, black when stale.
-  int x = SCREEN_W - 4;
+  // Sources left of the button: white while live, black when stale. The title
+  //  gets the room left of them.
+  int sourcesW = 0;
+  for (int i = 0; i < MAX_SOURCES; i++) {
+    if (sources[i].used) {
+      sourcesW += tft.textWidth(sources[i].name, 2) + 8;
+    }
+  }
+  String title = WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting...");
+  int room = SCREEN_W - TOGGLE_W - 4 - sourcesW - (3 + HEADER_REX.w + 5);
+  // With many sources the address alone, which is the part to type somewhere.
+  if (tft.textWidth(title, 2) > room && WiFi.status() == WL_CONNECTED) {
+    title = WiFi.localIP().toString();
+  }
+  drawBar(fitText(title, room, 2));
+  drawRowsToggle();
+
+  int x = SCREEN_W - TOGGLE_W - 4;
   tft.setTextDatum(MR_DATUM);
 
   for (int i = MAX_SOURCES - 1; i >= 0; i--) {
@@ -768,38 +812,70 @@ void formatAge(unsigned long ms, char *out, size_t size) {
   }
 }
 
+int rowHeight() {
+  return compactRows ? ROW_H_COMPACT : ROW_H_FINGER;
+}
+
 // Draws drawn row r for entry e, clearing it first, so one row can change alone.
+// A compact row is one line. A finger-sized row gives the message a second line
+//  of its own, and a divider below, so the tap targets are easy to tell apart.
 void drawRow(int r, const Entry &e) {
-  int y = HEADER_H + r * ROW_H;
+  int h = rowHeight();
+  int y = HEADER_H + r * h;
+  int top = compactRows ? y + h / 2 : y + 13;
   bool stale = isStale(e.source);
   uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
   uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
 
-  tft.fillRect(0, y, SCREEN_W, ROW_H, TFT_BLACK);
-  tft.fillRect(0, y + 2, 6, ROW_H - 4, chip);
+  tft.fillRect(0, y, SCREEN_W, h, TFT_BLACK);
+  tft.fillRect(0, y + 2, 6, h - 4, chip);
+  if (!compactRows) {
+    tft.drawFastHLine(10, y + h - 1, SCREEN_W - 10, COLOR_DIVIDER);
+  }
   tft.setTextDatum(ML_DATUM);
   tft.setTextColor(chip, TFT_BLACK);
   String label = e.state == BLOCKED && e.kind[0] ? String(e.kind) : String(stateNames[e.state]);
-  tft.drawString(label, 10, y + ROW_H / 2, 2);
-  tft.setTextColor(text, TFT_BLACK);
-  String who = String(e.session) + " " + e.app;
-  tft.drawString(who, 86, y + ROW_H / 2, 2);
+  tft.drawString(label, 10, top, 2);
 
-  // The time sits at the right edge; the message gets what is left, cut to fit.
+  // The time sits at the right edge of the first line.
   char *age = drawnRows[r].age;
   formatAge(millis() - e.since, age, sizeof(drawnRows[r].age));
   int right = SCREEN_W - 2;
   if (age[0]) {
     tft.setTextColor(COLOR_GREY, TFT_BLACK);
     tft.setTextDatum(MR_DATUM);
-    tft.drawString(age, SCREEN_W - 3, y + ROW_H / 2, 2);
+    tft.drawString(age, SCREEN_W - 3, top, 2);
     tft.setTextDatum(ML_DATUM);
     right = SCREEN_W - 3 - tft.textWidth(age, 2) - 8;
   }
 
-  int msgX = 86 + tft.textWidth(who + "  ", 2);
+  String who = String(e.session) + " " + e.app;
+  tft.setTextColor(text, TFT_BLACK);
+  tft.drawString(fitText(who, right - 86, 2), 86, top, 2);
+
+  // The message gets what is left, cut to fit.
   tft.setTextColor(COLOR_GREY, TFT_BLACK);
-  tft.drawString(fitText(e.msg, right - msgX, 2), msgX, y + ROW_H / 2, 2);
+  if (compactRows) {
+    int msgX = 86 + tft.textWidth(who + "  ", 2);
+    tft.drawString(fitText(e.msg, right - msgX, 2), msgX, top, 2);
+  } else if (e.msg[0]) {
+    tft.drawString(fitText(e.msg, SCREEN_W - 13, 2), 10, y + 31, 2);
+  } else {
+    // A dash for no message, so every row keeps the same two lines.
+    tft.drawFastHLine(10, y + 31, 12, COLOR_GREY);
+  }
+}
+
+// A button that turns the page, with an arrow. Dimmed at either end.
+void drawPageButton(int x, int y, int h, bool next, const String &label, bool enabled) {
+  uint16_t color = enabled ? TFT_WHITE : COLOR_DIVIDER;
+  tft.fillRoundRect(x, y, PAGE_BUTTON_W, h, 6, enabled ? COLOR_BUTTON : TFT_BLACK);
+  tft.drawRoundRect(x, y, PAGE_BUTTON_W, h, 6, enabled ? COLOR_GREY : COLOR_DIVIDER);
+  int mid = y + h / 2, tip = next ? x + PAGE_BUTTON_W - 10 : x + 10, back = next ? tip - 6 : tip + 6;
+  tft.fillTriangle(tip, mid, back, mid - 6, back, mid + 6, color);
+  tft.setTextColor(color, enabled ? COLOR_BUTTON : TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString(label, x + PAGE_BUTTON_W / 2 + (next ? -6 : 6), mid, 2);
 }
 
 void drawRows() {
@@ -829,30 +905,52 @@ void drawRows() {
     order[j] = idx;
   }
 
-  int rows = (SCREEN_H - HEADER_H) / ROW_H;
+  int h = rowHeight();
+  int slots = (SCREEN_H - HEADER_H) / h;
   tft.fillRect(0, HEADER_H, SCREEN_W, SCREEN_H - HEADER_H, TFT_BLACK);
   drawnCount = 0;
+  moreSlot = -1;
   if (count == 0) {
+    page = 0;
     tft.setTextColor(COLOR_GREY, TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
     tft.drawString("No agent status yet", SCREEN_W / 2, (SCREEN_H + HEADER_H) / 2, 2);
     return;
   }
-  for (int r = 0; r < rows && r < count; r++) {
-    int y = HEADER_H + r * ROW_H;
-    if (r == rows - 1 && count > rows) {
-      tft.setTextColor(COLOR_GREY, TFT_BLACK);
-      tft.setTextDatum(ML_DATUM);
-      tft.drawString(String("+") + (count - r) + " more", 4, y + ROW_H / 2, 2);
-      break;
-    }
 
-    const Entry &e = entries[order[r]];
+  // The last slot is preserved for pagination for when the rows don't fit
+  // The first page holds the most urgent ones.
+  int perPage = count > slots ? slots - 1 : slots;
+  int pages = (count + perPage - 1) / perPage;
+  pageCount = pages;
+  if (page >= pages) {
+    page = pages - 1;
+  }
+
+  int first = page * perPage;
+
+  for (int r = 0; r < perPage && first + r < count; r++) {
+    const Entry &e = entries[order[first + r]];
     strlcpy(drawnRows[r].source, e.source, sizeof(drawnRows[r].source));
     strlcpy(drawnRows[r].key, e.key, sizeof(drawnRows[r].key));
-    drawnRows[r].entry = order[r];
+
+    drawnRows[r].entry = order[first + r];
     drawnCount = r + 1;
+
     drawRow(r, e);
+  }
+
+  if (pages > 1) {
+    moreSlot = slots - 1;
+    int y = HEADER_H + moreSlot * h;
+    int after = count - first - perPage;
+
+    drawPageButton(6, y + 3, h - 6, false, String("Back"), page > 0);
+    drawPageButton(SCREEN_W - 6 - PAGE_BUTTON_W, y + 3, h - 6, true, after > 0 ? String(after) + " more" : String("More"), after > 0);
+
+    tft.setTextColor(COLOR_GREY, TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(String(page + 1) + " / " + pages, SCREEN_W / 2, y + h / 2, 2);
   }
 }
 
@@ -913,22 +1011,57 @@ bool pressEnded(int &x, int &y) {
   return true;
 }
 
-// Sends a tap when a press on a row ends.
+void setCompactRows(bool compact) {
+  compactRows = compact;
+  Preferences settings;
+  settings.begin(SETTINGS_NAMESPACE, false);
+  settings.putBool(KEY_ROWS_COMPACT, compact);
+  settings.end();
+  Serial.printf("Rows: %s\n", compact ? "compact" : "finger-sized");
+}
+
+// Sends a tap when a press on a row ends. The button at the right of the header
+//  switches between finger-sized and compact rows; the last slot turns pages.
 void checkTouch() {
   int x, y;
   if (!pressEnded(x, y)) {
     return;
   }
 
-  int r = (y - HEADER_H) / ROW_H;
-  if (y < HEADER_H || r >= drawnCount) {
+  if (y < HEADER_H) {
+    if (x < SCREEN_W - TOGGLE_W) {
+      return;
+    }
+
+    setCompactRows(!compactRows);
+
+    page = 0;
+    dirty = true;
     return;
   }
+
+  int h = rowHeight();
+  int r = (y - HEADER_H) / h;
+  if (r == moreSlot) {
+    // Left half back, right half on; at either end that half does nothing.
+    int to = x < SCREEN_W / 2 ? page - 1 : page + 1;
+    if (to >= 0 && to < pageCount) {
+      page = to;
+      pageAt = millis();
+      dirty = true;
+    }
+
+    return;
+  }
+  if (r >= drawnCount) {
+    return;
+  }
+  pageAt = millis();
 
   // Outline the row: white when a watcher took the tap, grey when none listens.
   bool sent = sendTap(drawnRows[r]);
   Serial.printf("Tap row %d %s %s: %s\n", r, drawnRows[r].source, drawnRows[r].key, sent ? "sent" : "no watcher");
-  tft.drawRect(0, HEADER_H + r * ROW_H, SCREEN_W, ROW_H, sent ? TFT_WHITE : COLOR_GREY);
+  tft.drawRect(0, HEADER_H + r * h, SCREEN_W, h, sent ? TFT_WHITE : COLOR_GREY);
   holdUntil = millis() + TAP_FLASH_MS;
   dirty = true;
 }
@@ -1003,6 +1136,15 @@ bool loadSavedWifi() {
   wifiSsid = ssid;
   wifiPassword = password;
   return true;
+}
+
+void loadRowStyle() {
+  Preferences settings;
+  // Opening read-only fails while nothing was ever saved.
+  if (settings.begin(SETTINGS_NAMESPACE, true)) {
+    compactRows = settings.getBool(KEY_ROWS_COMPACT, false);
+    settings.end();
+  }
 }
 
 void saveWifi(const String &ssid, const String &password) {
@@ -1590,6 +1732,7 @@ void setup() {
   touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSPI);
   touch.setRotation(1);
+  loadRowStyle();
 
   // The password lives in the settings only, not in a second copy the Wi-Fi
   //  driver would keep in flash.
@@ -1703,6 +1846,11 @@ void loop() {
   checkTouch();
   updateLed();
   logHealth();
+
+  if (page > 0 && millis() - pageAt > PAGE_MS) {
+    page = 0;
+    dirty = true;
+  }
 
   // A source goes stale with time alone, without a request, so watch for it.
   static uint8_t staleMask = 0;

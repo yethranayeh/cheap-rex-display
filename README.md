@@ -72,6 +72,10 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 
 `firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first. The agent that has waited the longest is listed first among other agents that are also waiting.
 
+Rows are sized for a finger with the option for a compact look. The button at the right of the header switches to compact rows, wihch can be used to pack more information and can still be used comfortably if you have a stylus. The pagination buttons under the list also follow the view choice.
+
+The names at the right of the header are the Rex servers whose watchers send to the board. Each is white while its watcher is in touch, and turns black when it goes quiet (see [Watcher](#watcher)).
+
 Each row shows at its right edge how long the agent has been in its current state, such as `4m` or `1h 12m`. Rows in a state for less than a minute show no time. The time counts from the last change of state, so heartbeats and new messages in the same state don't reset it.
 
 The LED speaks for each agent that waits for you, one after another, then pauses:
