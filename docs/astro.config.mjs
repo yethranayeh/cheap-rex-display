@@ -8,7 +8,7 @@ export default defineConfig({
 	site: site.url,
 	output: "static",
 	devToolbar: { enabled: false },
-	integrations: [sitemap()],
+	integrations: [sitemap({ filter: (page) => !page.includes("/prototypes/") })],
 	vite: {
 		plugins: [tailwindcss()]
 	},

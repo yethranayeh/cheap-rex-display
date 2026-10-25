@@ -1,9 +1,11 @@
-/** Place a fixed preview card next to its trigger, clamped to the viewport. */
-export function placePreviewCard(trigger: HTMLElement, card: HTMLElement, width = 336) {
+/**
+ * Place a fixed preview card next to its trigger, clamped to the viewport.
+ * The width comes from the card's own classes, so it can't drift from the CSS.
+ */
+export function placePreviewCard(trigger: HTMLElement, card: HTMLElement) {
   const margin = 12;
   const rect = trigger.getBoundingClientRect();
-  const cardWidth = Math.min(width, window.innerWidth - margin * 2);
-  card.style.width = `${cardWidth}px`;
+  const cardWidth = card.offsetWidth;
   const height = card.offsetHeight;
   let left = rect.right - cardWidth;
   left = Math.max(margin, Math.min(left, window.innerWidth - cardWidth - margin));
@@ -73,7 +75,6 @@ export function wirePreviewCard(
   function close() {
     if (!isOpen()) return;
     root.removeAttribute("data-open");
-    card.style.removeProperty("width");
     card.style.removeProperty("left");
     card.style.removeProperty("top");
     card.style.removeProperty("--card-shift");

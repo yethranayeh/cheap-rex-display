@@ -21,14 +21,14 @@ const id = `thumb-${crypto.randomUUID()}`;
 
 <span
 	class:list={[
-		"inline-thumb group/preview absolute top-[0.05rem] left-[calc(100%+2rem)] block h-11 w-[4.25rem] max-[959px]:static max-[959px]:mt-2.5 max-[959px]:h-auto max-[959px]:w-auto",
+		"inline-thumb group/preview absolute top-[0.05rem] left-[calc(100%+2rem)] block h-11 w-[4.25rem] max-lg:static max-lg:mt-2.5 max-lg:h-auto max-lg:w-auto",
 		className
 	]}
 	data-preview-root
 	data-preview-pinned
 	data-thumb>
 	<button
-		class='inline-thumb-button block h-11 w-[4.25rem] cursor-zoom-in overflow-hidden rounded-sm border-2 border-lavender/45 bg-ink p-0 transition-colors duration-150 hover:border-lavender focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-ring aria-expanded:border-lavender max-[959px]:hidden motion-reduce:transition-none'
+		class='inline-thumb-button block h-11 w-[4.25rem] cursor-zoom-in overflow-hidden rounded-sm border-2 border-lavender/45 bg-ink p-0 transition-colors duration-150 hover:border-lavender focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-ring aria-expanded:border-lavender max-lg:hidden motion-reduce:transition-none'
 		type='button'
 		aria-label={label}
 		aria-expanded='false'
@@ -54,9 +54,9 @@ const id = `thumb-${crypto.randomUUID()}`;
 		image={{ src, alt, width, height }}
 		caption={caption}
 		label={label}
-		class='inline-thumb-card max-[959px]:static max-[959px]:grid max-[959px]:w-full max-[959px]:max-h-none max-[959px]:grid-cols-[12rem_minmax(0,1fr)] max-[959px]:items-start max-[959px]:overflow-hidden max-[959px]:p-0 max-[959px]:border max-[959px]:border-border max-[959px]:border-t-2 max-[959px]:border-t-lavender/50 max-[959px]:rounded-sm max-[959px]:bg-surface max-[959px]:opacity-100 max-[959px]:shadow-none max-[959px]:visible max-[959px]:pointer-events-auto max-[959px]:translate-y-0 max-[959px]:scale-100 max-[479px]:grid-cols-1'
-		headClass='inline-thumb-head max-[959px]:hidden'
-		imageClass='inline-thumb-image max-[959px]:h-full max-[959px]:border-0 max-[959px]:border-r max-[959px]:border-border max-[959px]:rounded-none max-[959px]:object-cover max-[479px]:h-auto max-[479px]:border-r-0 max-[479px]:border-b'
-		captionClass='inline-thumb-caption max-[959px]:m-0 max-[959px]:flex max-[959px]:items-center max-[959px]:px-[0.7rem] max-[959px]:py-[0.6rem]'
+		class='inline-thumb-card max-lg:static max-lg:grid max-lg:w-full max-lg:max-h-none max-lg:grid-cols-[12rem_minmax(0,1fr)] max-lg:items-start max-lg:overflow-hidden max-lg:p-0 max-lg:border max-lg:border-border max-lg:border-t-2 max-lg:border-t-lavender/50 max-lg:rounded-sm max-lg:bg-surface max-lg:opacity-100 max-lg:shadow-none max-lg:visible max-lg:pointer-events-auto max-lg:translate-y-0 max-lg:scale-100 max-sm:grid-cols-1'
+		headClass='inline-thumb-head max-lg:hidden'
+		imageClass='inline-thumb-image max-lg:h-full max-lg:border-0 max-lg:border-r max-lg:border-border max-lg:rounded-none max-lg:object-cover max-sm:h-auto max-sm:border-r-0 max-sm:border-b'
+		captionClass='inline-thumb-caption max-lg:m-0 max-lg:flex max-lg:items-center max-lg:px-[0.7rem] max-lg:py-[0.6rem]'
 	/>
 </span>
