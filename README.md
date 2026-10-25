@@ -39,7 +39,7 @@ Known values for this board, if you write your own code:
 
 ## Install from the browser
 
-On [cheap-rex-display.pages.dev/install](https://cheap-rex-display.pages.dev/install/), a browser with [Web Serial](https://caniuse.com/web-serial) flashes the latest release onto the board over USB, then asks for your Wi-Fi. Building it yourself still works as before, see below.
+On [cheap-rex-display.pages.dev/install](https://cheap-rex-display.pages.dev/install/), a browser with [Web Serial](https://caniuse.com/web-serial) flashes the latest release onto the board over USB, then asks for your Wi-Fi. The website walks through the [Wi-Fi setup](https://cheap-rex-display.pages.dev/wifi/) and [Improv](https://cheap-rex-display.pages.dev/wifi/improv/) with screenshots. Building it yourself still works as before, see below.
 
 ## Setup from zero
 
@@ -76,7 +76,7 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 
 `firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first. The agent that has waited the longest is listed first among other agents that are also waiting.
 
-Rows are sized for a finger with the option for a compact look. The button at the right of the header switches to compact rows, wihch can be used to pack more information and can still be used comfortably if you have a stylus. The pagination buttons under the list also follow the view choice.
+Rows are sized for a finger with the option for a compact look. The button at the right of the header switches to compact rows, which can be used to pack more information and can still be used comfortably if you have a stylus. The pagination buttons under the list also follow the view choice.
 
 The names at the right of the header are the Rex servers whose watchers send to the board. Each is white while its watcher is in touch, and turns black when it goes quiet (see [Watcher](#watcher)).
 
@@ -131,7 +131,7 @@ The board joins the network, saves it and restarts onto it. The hotspot goes awa
 
 The hotspot also opens when the board can't join its network for 3 minutes. This can happen if you move it somewhere else. While no device is on the hotspot, the board keeps trying its old network, and restarts onto it once it's back.
 
-**Improv over USB.** The firmware speaks [Improv Wi-Fi](https://www.improv-wifi.com/serial/) over its serial port at all times. An installer built on [ESP Web Tools](https://esphome.github.io/esp-web-tools/) offers to set up Wi-Fi right after flashing. On a board that is already flashed, the **Improv via Serial** button on [improv-wifi.com](https://www.improv-wifi.com/) does the same in a browser with Web Serial. Close any serial monitor first. Once the board joins, it saves the network and restarts.
+**Improv over USB.** The firmware speaks [Improv Wi-Fi](https://www.improv-wifi.com/serial/) over its serial port at all times. An installer built on [ESP Web Tools](https://esphome.github.io/esp-web-tools/) offers to set up Wi-Fi right after flashing. On a board that is already flashed, the **Improv via Serial** button on [improv-wifi.com](https://www.improv-wifi.com/) does the same in a browser with Web Serial. Close any serial monitor first. Once the board joins, it saves the network and restarts. Improv's **Visit Device** link then opens the board's settings page, see [Settings](#settings).
 
 **`secrets.h`** is optional and works as before. A network saved on the board comes first, so after forgetting it the board goes back to the one in `secrets.h`.
 
@@ -139,7 +139,18 @@ The hotspot also opens when the board can't join its network for 3 minutes. This
 
 A normal upload keeps the saved network. A full flash erase (`esptool.py erase_flash`, or an installer's "erase device" option) wipes it along with the board's other settings. Updating from the website keeps it: the installer writes the bootloader, partition table, boot selector and app, and leaves NVS alone. A new install from the website, over other firmware or a board the installer can't identify, erases the whole flash first, and the installer asks for Wi-Fi again right after.
 
-The board keeps its settings in the `Preferences` (NVS) namespace `crd`: `wifi_ssid` and `wifi_pass`. The firmware's header comment lists the keys. Passwords never go to the serial port or the screen.
+The board keeps its settings in the `Preferences` (NVS) namespace `crd`: `wifi_ssid` and `wifi_pass` for Wi-Fi and `rows_compact` for the row size. The firmware's header comment lists the keys. Passwords never go to the serial port or the screen.
+
+### Settings
+
+The board keeps one setting for now: compact rows, the same as the button in the header. Open `http://crd.local/settings` (or the board's address) and the board serves a tiny loader page that fetches the settings page from the website, so the firmware holds only a small API. The computer needs internet for this. The loader pins the page with a [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity) hash built into the firmware, so a board only runs the page release it was built for. Firefox's HTTPS-Only mode warns once about the `http://` address; proceeding works.
+
+You can also use the API directly:
+
+```sh
+curl -4 http://crd.local/api/settings
+curl -4 -d rows_compact=true http://crd.local/api/settings
+```
 
 ## Watcher
 
@@ -186,7 +197,7 @@ The header lists every source the board has heard from, up to four.
 - **No networks on the setup page**: tap **Scan again**. Hidden networks aren't listed.
 - **The installer doesn't offer Wi-Fi setup, or improv-wifi.com says Improv isn't detected**: close any serial monitor, since only one program can hold the port. Press the board's reset button and try again.
 - **Wi-Fi is gone after an update**: the flash was fully erased. Set it up again.
-- **`crd.local` takes 5 seconds**: macOS also asks for an IPv6 address the board never sends. Use `curl -4`. The watcher watcher already does this as documented above.
+- **`crd.local` takes 5 seconds**: macOS also asks for an IPv6 address the board never sends. Use `curl -4`. The watcher already does this as documented above.
 - **`crd.local` not found**: `.local` names (mDNS) only work on the same network. Try using the address in the board's header instead: `url=http://<address>`.
 - **The watcher logs `/status failed`**: the board can't be reached. The watcher sends everything again once it is back.
 - **Rows stay grey**: that server's watcher stopped. Start it again.
@@ -217,9 +228,7 @@ git tag v0.2.0 && git push origin v0.2.0
 
 The tag has to match, because the board reports the version to the installer and ESP Web Tools compares it with the manifest's to offer an update. A `-` in the tag (`v0.2.0-rc.1`) makes a prerelease. Then fetch it into the website, see `docs/README.md`.
 
-## Plan
-
-- A Rex Lua script that watches a Rex server for program status changes and sends them to the CYD.
+## Scope
 
 The display only shows status. Nothing on it can answer or approve anything in an agent session. Yet.
 

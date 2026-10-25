@@ -27,6 +27,7 @@ It checks each part against the size and sha256 in the release's `firmware.json`
 
 ## Layout
 
+- Pages: `/` (home), `/docs/` (contents of the docs pages), `/install/`, `/wifi/` and `/wifi/improv/`.
 - `src/config/site.ts`: the name, URL, description and links, written once.
 - `src/config/palettes.ts`: the palettes for the switcher, and the `localStorage` key.
 - `src/styles/global.css`: the design tokens and the palettes.
@@ -35,6 +36,7 @@ It checks each part against the size and sha256 in the release's `firmware.json`
 - `src/layouts/DocsLayout.astro`: every docs page: the site header, breadcrumbs under Docs, and the footer. Each docs page also gets a line on `/docs/` (`src/pages/docs/index.astro`).
 - `src/components/ui/`: reusable generic elements: `Link` (`offsite` adds ↗), `Breadcrumbs`, `Thumbnail` (a screenshot beside a step), `ImageFigure` (a captioned image in the flow), `PreviewCard`, `Highlight`, `Badge`, `Button`.
 - `src/components/feature/`: CRD's own elements: `Notes` and `NoteLink` (numbered media endnotes), `BrowserSupport`, `VideoFigure`, `SiteHeader`, `SiteFooter`.
+- `public/prototypes/settings-ui.js`: the settings page the board's `/settings` loader fetches, see below.
 - A page's media lives beside it in `_media.ts` (the underscore keeps it out of the routes).
 
 ## Tokens
@@ -67,6 +69,10 @@ To add one, add its block to `global.css` and its id to `palettes.ts`, then run 
 - `python3 scripts/check-firmware.py` checks the built firmware: the manifest flashes the parts in `firmware.json` at their offsets, each with its size and sha256, and the install page has the button and shows every sha256.
 - `python3 scripts/check-head.py` checks the built pages: the palette script comes first in `<head>`, and the title, description, canonical and social tags are there.
 
+## Settings page
+
+The board serves a loader at `/settings` that runs `public/prototypes/settings-ui.js` from this site, pinned by the sha384 in `SETTINGS_UI_SRI` in the firmware. Any change to the file, even formatting, changes the hash. After a deploy, copy the hash of the deployed file into the firmware and reflash, or boards will refuse the script.
+
 ## Social image
 
-The Open Graph and Twitter tags point at `public/social.png` (1280×640), which isn't tracked yet.
+The Open Graph and Twitter tags point at `public/social.png` (1280×640).
