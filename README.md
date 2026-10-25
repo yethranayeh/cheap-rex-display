@@ -39,7 +39,7 @@ Known values for this board, if you write your own code:
 
 ## Install from the browser
 
-On [cheap-rex-display.pages.dev/install](https://cheap-rex-display.pages.dev/install/), Chrome or Edge flashes the latest release onto the board over USB, then asks for your Wi-Fi. Building it yourself still works as before, see below.
+On [cheap-rex-display.pages.dev/install](https://cheap-rex-display.pages.dev/install/), a browser with [Web Serial](https://caniuse.com/web-serial) flashes the latest release onto the board over USB, then asks for your Wi-Fi. Building it yourself still works as before, see below.
 
 ## Setup from zero
 
@@ -131,7 +131,7 @@ The board joins the network, saves it and restarts onto it. The hotspot goes awa
 
 The hotspot also opens when the board can't join its network for 3 minutes. This can happen if you move it somewhere else. While no device is on the hotspot, the board keeps trying its old network, and restarts onto it once it's back.
 
-**Improv over USB.** The firmware speaks [Improv Wi-Fi](https://www.improv-wifi.com/serial/) over its serial port at all times. An installer built on [ESP Web Tools](https://esphome.github.io/esp-web-tools/) offers to set up Wi-Fi right after flashing. On a board that is already flashed, the **Improv via Serial** button on [improv-wifi.com](https://www.improv-wifi.com/) does the same in Chrome or Edge. Close any serial monitor first. Once the board joins, it saves the network and restarts.
+**Improv over USB.** The firmware speaks [Improv Wi-Fi](https://www.improv-wifi.com/serial/) over its serial port at all times. An installer built on [ESP Web Tools](https://esphome.github.io/esp-web-tools/) offers to set up Wi-Fi right after flashing. On a board that is already flashed, the **Improv via Serial** button on [improv-wifi.com](https://www.improv-wifi.com/) does the same in a browser with Web Serial. Close any serial monitor first. Once the board joins, it saves the network and restarts.
 
 **`secrets.h`** is optional and works as before. A network saved on the board comes first, so after forgetting it the board goes back to the one in `secrets.h`.
 
