@@ -1,5 +1,6 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
+import SiteHeader from "../components/feature/SiteHeader.astro";
 import SiteFooter from "../components/feature/SiteFooter.astro";
 import Highlight from "../components/ui/Highlight.astro";
 import Link from "../components/ui/Link.astro";
@@ -28,7 +29,7 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 	title='Install'
 	description='Flash Cheap Rex Display onto a Cheap Yellow Display from your browser over USB, then give it your Wi-Fi over the same cable.'>
 	<main class='mx-auto max-w-page px-4 pt-12'>
-		<p class='mb-8 text-sm'><Link href='/'>{site.name}</Link></p>
+		<SiteHeader />
 
 		<h1 class='mb-4 text-3xl font-[650]'>Install from your browser</h1>
 		<p class='mb-8 text-lg'>

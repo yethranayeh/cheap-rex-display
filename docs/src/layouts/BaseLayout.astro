@@ -55,6 +55,10 @@ const paletteIds = palettes.map((p) => p.id);
 		<meta name='twitter:description' content={description} />
 		<meta name='twitter:image' content={socialImage} />
 
+		<link rel='icon' href='/favicon.svg' type='image/svg+xml' />
+		<link rel='icon' href='/favicon.ico' sizes='32x32' />
+		<link rel='apple-touch-icon' href='/apple-touch-icon.png' />
+
 		<Font cssVariable='--font-recursive' preload />
 		<slot name='head' />
 	</head>

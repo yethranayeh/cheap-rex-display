@@ -1,0 +1,13 @@
+---
+import mark from "../../../../assets/branding/crd-mark.svg?raw";
+import { site } from "../../config/site";
+---
+
+<header class='mb-8 text-sm'>
+	<a
+		class='inline-flex items-center gap-2 text-primary underline decoration-2 underline-offset-3 hover:text-foreground hover:decoration-primary [&_svg]:block [&_svg]:h-4 [&_svg]:w-auto'
+		href='/'>
+		<Fragment set:html={mark} />
+		{site.name}
+	</a>
+</header>
