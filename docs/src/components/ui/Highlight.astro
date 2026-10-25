@@ -1,0 +1,11 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"mark">;
+
+const { class: className, ...rest } = Astro.props;
+---
+
+<mark class:list={["rounded-sm bg-amber/15 px-1 py-px font-mono whitespace-nowrap text-amber", className]} {...rest}
+	><slot /></mark
+>

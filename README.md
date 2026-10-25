@@ -37,6 +37,10 @@ Known values for this board, if you write your own code:
 - Touch (XPT2046) has its own SPI pins: IRQ 36, MOSI 32, MISO 39, CLK 25, CS 33. Raw X 275-3630 maps to 0-319 and raw Y 380-3730 to 0-239
 - RGB LED: GPIO 4 red, 16 green, 17 blue. Active low: LOW turns a color on
 
+## Install from the browser
+
+On [cheap-rex-display.pages.dev/install](https://cheap-rex-display.pages.dev/install/), Chrome or Edge flashes the latest release onto the board over USB, then asks for your Wi-Fi. Building it yourself still works as before, see below.
+
 ## Setup from zero
 
 1. Install [arduino-cli](https://arduino.github.io/arduino-cli/latest/installation/) (`brew install arduino-cli` on macOS)
@@ -133,7 +137,7 @@ The hotspot also opens when the board can't join its network for 3 minutes. This
 
 **Forgetting Wi-Fi.** Hold a finger on the boot animation. After a second the bottom line counts down, and after 5 seconds the board asks whether to forget the saved network. Tap **Forget** to forget it and restart, or **Keep**, or wait 10 seconds, to keep it. A short tap still skips the animation. Forgetting is only offered on the board itself, never over HTTP, and only when a network is saved on the board.
 
-A normal upload keeps the saved network. A full flash erase (`esptool.py erase_flash`, or an installer's "erase device" option) wipes it, along with the board's other settings, so set it up again after one.
+A normal upload keeps the saved network. A full flash erase (`esptool.py erase_flash`, or an installer's "erase device" option) wipes it along with the board's other settings. Updating from the website keeps it: the installer writes the bootloader, partition table, boot selector and app, and leaves NVS alone. A new install from the website, over other firmware or a board the installer can't identify, erases the whole flash first, and the installer asks for Wi-Fi again right after.
 
 The board keeps its settings in the `Preferences` (NVS) namespace `crd`: `wifi_ssid` and `wifi_pass`. The firmware's header comment lists the keys. Passwords never go to the serial port or the screen.
 
@@ -201,6 +205,17 @@ sips -s format png screen.bmp --out screen.png
 ```
 
 You can use it to let your agent take a look at the board, because sometimes looking at it yourself is not enough. Team work makes the dream work!
+
+### Releases
+
+A `v*` tag builds the firmware in `.github/workflows/release.yml` and attaches the install page's images and manifest, a merged image for esptool, and `firmware.json` with each file's size and sha256. Bump `FIRMWARE_VERSION` in the sketch, commit, then tag and push:
+
+```sh
+python3 scripts/release-assets.py v0.2.0   # exits if the tag isn't v + FIRMWARE_VERSION
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The tag has to match, because the board reports the version to the installer and ESP Web Tools compares it with the manifest's to offer an update. A `-` in the tag (`v0.2.0-rc.1`) makes a prerelease. Then fetch it into the website, see `docs/README.md`.
 
 ## Plan
 

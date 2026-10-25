@@ -9,6 +9,7 @@ export const site = {
   links: {
     repo: "https://github.com/yethranayeh/cheap-rex-display",
     licence: "https://github.com/yethranayeh/cheap-rex-display/blob/main/LICENSE",
+    releases: "https://github.com/yethranayeh/cheap-rex-display/releases",
     rex: "https://www.superlogical.com/rex/docs/installation",
   },
   media: "https://res.cloudinary.com/drwbqceye/video/upload",

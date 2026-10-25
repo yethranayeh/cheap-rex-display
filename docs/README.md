@@ -13,6 +13,18 @@ bun run deploy    # build, then wrangler pages deploy
 
 Deployment configuration is in [wrangler.jsonc](wrangler.jsonc).
 
+## Firmware
+
+The install page (`/install/`) flashes the board with [ESP Web Tools](https://esphome.github.io/esp-web-tools/). ESP Web Tools fetches the manifest and the four parts it flashes from the page, and GitHub's release downloads send no CORS headers, so the site serves its own copy from `public/firmware/` (gitignored). Before a deploy, fetch a release built by `.github/workflows/release.yml`:
+
+```sh
+python3 scripts/fetch-firmware.py               # the latest release
+python3 scripts/fetch-firmware.py v0.2.0-rc.1   # a prerelease, or any other tag
+bun run deploy
+```
+
+It checks each part against the size and sha256 in the release's `firmware.json`. The merged image stays on the release, and the page links to it for esptool. `src/config/firmware.ts` reads that file at build time for the page's version, links and checksum. Without `public/firmware/`, the page points to building from source instead.
+
 ## Layout
 
 - `src/config/site.ts`: the name, URL, description and links, written once.
@@ -49,6 +61,7 @@ To add one, add its block to `global.css` and its id to `palettes.ts`, then run 
 ## Checks
 
 - `python3 scripts/check-contrast.py` checks every palette's contrast: text 16:1, muted 8:1, faint and the accents 4.5:1 on the dark grounds, 4.5:1 for everything on paper. Code blocks are held to the dark floors on every palette.
+- `python3 scripts/check-firmware.py` checks the built firmware: the manifest flashes the parts in `firmware.json` at their offsets, each with its size and sha256, and the install page has the button and shows every sha256.
 - `python3 scripts/check-head.py` checks the built pages: the palette script comes first in `<head>`, and the title, description, canonical and social tags are there.
 
 ## Social image

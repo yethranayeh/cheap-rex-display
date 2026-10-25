@@ -2,7 +2,7 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Banner from "../components/feature/Banner.astro";
 import VideoFigure from "../components/feature/VideoFigure.astro";
-import PaletteSwitcher from "../components/feature/PaletteSwitcher.astro";
+import SiteFooter from "../components/feature/SiteFooter.astro";
 import Link from "../components/ui/Link.astro";
 import { site } from "../config/site";
 
@@ -52,17 +52,13 @@ const jsonLd = {
 			A cheap <Link href={site.links.rex}>Rex</Link> display for coding agents. It shows the agents running in your Rex sessions
 			on a Cheap Yellow Display, and its LED tells you when one waits for you.
 		</p>
-		<p><Link class='font-[650]' href={site.links.repo}>Code and setup on GitHub</Link></p>
+		<p class='flex flex-wrap gap-x-6 gap-y-2'>
+			<Link class='font-[650]' href='/install/'>Install from your browser</Link>
+			<Link class='font-[650]' href={site.links.repo}>Code and setup on GitHub</Link>
+		</p>
 
 		{videos.map((v) => <VideoFigure {...v} />)}
 	</main>
 
-	<footer class='mx-auto mt-16 max-w-page border-t border-border px-4 pb-12 text-sm text-faint'>
-		<p class='mt-3'>Experimental work in progress. MIT licensed.</p>
-		<p class='mt-3'>Not affiliated with or endorsed by Superlogical. The Rex drawing is meant as a tribute.</p>
-
-		<div class='mt-6'>
-			<PaletteSwitcher />
-		</div>
-	</footer>
+	<SiteFooter />
 </BaseLayout>

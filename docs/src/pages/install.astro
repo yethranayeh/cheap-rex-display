@@ -1,0 +1,214 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import SiteFooter from "../components/feature/SiteFooter.astro";
+import Highlight from "../components/ui/Highlight.astro";
+import Link from "../components/ui/Link.astro";
+
+import { site } from "../config/site";
+import { firmware, manifestPath } from "../config/firmware";
+
+const readme = (anchor: string) => `${site.links.repo}#${anchor}`;
+const merged = firmware?.merged.file ?? "cheap-rex-display-VERSION-merged.bin";
+const flash = `esptool --chip esp32 --baud 460800 write-flash 0x0 ${merged}`;
+const mergedUrl = firmware && `${firmware.repo}/releases/download/${firmware.tag}/${merged}`;
+const hex = (n: number) => `0x${n.toString(16)}`;
+const kilobytes = (n: number) => `${Math.ceil(n / 1024)} KB`;
+
+// Keyed by the end of each part's file name, as scripts/release-assets.py names them
+const roles: Record<string, string> = {
+	bootloader: "the bootloader, which starts the chip",
+	partitions: "the partition table, which says where everything lives",
+	boot_app0: "the boot selector, which picks the app to start",
+	app: "the app: the display, Wi-Fi setup and the watcher's API"
+};
+const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bin".length)] ?? "";
+---
+
+<BaseLayout
+	title='Install'
+	description='Flash Cheap Rex Display onto a Cheap Yellow Display from Chrome or Edge, then give it your Wi-Fi over the same cable.'>
+	<main class='mx-auto max-w-page px-4 pt-12'>
+		<p class='mb-8 text-sm'><Link href='/'>{site.name}</Link></p>
+
+		<h1 class='mb-4 text-3xl font-[650]'>Install from your browser</h1>
+		<p class='mb-8 text-lg'>
+			Plug the board into this computer, press Install and pick its port. Your browser writes the firmware, then asks
+			for your Wi-Fi.
+		</p>
+
+		{
+			firmware ? (
+				<div class='rounded-lg border border-border bg-surface p-6'>
+					<esp-web-install-button manifest={manifestPath}>
+						<button
+							slot='activate'
+							class='cursor-pointer rounded-full bg-primary px-6 py-3 font-[650] text-primary-foreground hover:bg-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'>
+							Install {firmware.name} {firmware.version}
+						</button>
+						<p slot='unsupported'>
+							This browser can't reach USB serial ports. Open this page in Chrome or Edge on a computer, or flash the
+							image yourself, see <Link href='#going-back'>Going back</Link>.
+						</p>
+						<p slot='not-allowed'>
+							The installer only works over HTTPS. Open <Link href={`${site.url}/install/`}>this page on its site</Link>
+							.
+						</p>
+					</esp-web-install-button>
+					<noscript>
+						<p>
+							The installer needs JavaScript. Or flash the image yourself, see{" "}
+							<Link href='#going-back'>Going back</Link>.
+						</p>
+					</noscript>
+					<p class='mt-4 text-sm text-muted-foreground'>
+						Chrome or Edge on a computer. For the ESP32-2432S028, the board this is built and tested on.
+					</p>
+				</div>
+			) : (
+				<div class='rounded-lg border border-border bg-surface p-6'>
+					<p>There is no build yet.</p>
+				</div>
+			)
+		}
+
+		<h2 class='mt-12 mb-3 text-xl font-[650]'>What gets flashed</h2>
+		{
+			firmware ? (
+				<dl class='grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 rounded-lg border border-border p-6 text-sm'>
+					<dt class='text-muted-foreground'>Firmware</dt>
+					<dd>
+						{firmware.name} {firmware.version}, from the{" "}
+						<Link href={`${firmware.repo}/releases/tag/${firmware.tag}`}>{firmware.tag} release</Link>
+					</dd>
+					<dt class='text-muted-foreground'>Built by</dt>
+					<dd>
+						<Link href={firmware.run}>this GitHub Actions run</Link> of the{" "}
+						<Link href={`${firmware.repo}/blob/${firmware.commit}/.github/workflows/release.yml`}>
+							release workflow
+						</Link>
+						, from commit{" "}
+						<Link class='font-mono' href={`${firmware.repo}/commit/${firmware.commit}`}>
+							{firmware.commit.slice(0, 7)}
+						</Link>
+					</dd>
+					{firmware.parts.map((part) => (
+						<>
+							<dt class='font-mono text-muted-foreground'>{hex(part.offset)}</dt>
+							<dd>
+								<code>{part.file}</code>, {kilobytes(part.size)}: {role(part.file)}
+								<code class='mt-1 block break-all text-muted-foreground'>sha256 {part.sha256}</code>
+							</dd>
+						</>
+					))}
+				</dl>
+			) : (
+				<p>The firmware from the repository, built by its release workflow. Nothing else.</p>
+			)
+		}
+		<p class='mt-4'>
+			Four files, at the offsets the Arduino IDE uploads to. The gap from <code>0x9000</code> to <code>0xe000</code> is where
+			the board keeps its Wi-Fi, and none of them write there.
+		</p>
+		<p class='mt-4'>
+			The page itself is <Link href='https://esphome.github.io/esp-web-tools/'>ESP Web Tools</Link>. It only talks to
+			the port you pick, and only while this tab is open. Your Wi-Fi password goes from this page to the board over the
+			cable, and nowhere else: this site has no server to send it to.
+		</p>
+
+		<h2 class='mt-12 mb-3 text-xl font-[650]'>Steps</h2>
+		<ol class='list-decimal space-y-2 pl-6'>
+			<li>
+				Close any serial monitor, then plug the board in with a USB cable <em>that carries data</em>, becuase some
+				cables are only capable of providing power.
+			</li>
+			<li>
+				Press Install and pick the board's port. It has a <strong>CH340</strong> chip, so look for{" "}
+				<Highlight>USB Serial</Highlight>, <Highlight>CH340</Highlight> or <Highlight>wchusbserial</Highlight>.
+			</li>
+			<li>Confirm, and keep it plugged in while it writes.</li>
+			<li>
+				When it asks, pick your network and enter its password. The board only sees 2.4 GHz networks. It joins, saves
+				the network and restarts, then shows its address in the header.
+			</li>
+			<li>Start the <Link href={readme("watcher")}>watcher</Link> in Rex.</li>
+		</ol>
+		<p class='mt-4'>
+			Skipped the Wi-Fi step? The board opens its own setup hotspot instead, see <Link href={readme("wi-fi")}
+				>Wi-Fi</Link
+			>.
+		</p>
+
+		<h2 class='mt-12 mb-3 text-xl font-[650]'>Already running it?</h2>
+		<p class='mb-4'>The installer asks the board what it runs before it writes anything.</p>
+		<ul class='list-disc space-y-2 pl-6'>
+			<li>
+				<strong>Same version:</strong> there is nothing to install. It offers to change the Wi-Fi, show the logs, or erase
+				user data, which erases the whole flash, Wi-Fi included, and installs it again.
+			</li>
+			<li>
+				<strong>Another version:</strong> it offers an update. That writes only the four files, so the board keeps its Wi-Fi
+				and joins it again on its own.
+			</li>
+			<li>
+				<strong>Something else, or a board that doesn't answer:</strong> it's a new install. The installer erases the whole
+				flash first, without asking, then installs and asks for your Wi-Fi. <em
+					>Whatever the old firmware kept is gone.</em
+				>
+			</li>
+		</ul>
+
+		<h2 id='going-back' class='mt-12 mb-3 text-xl font-[650]'>Going back</h2>
+		<p class='mb-4'>
+			Nothing here locks the board. It's an ordinary <strong>ESP32</strong> flash, so whatever you ran before goes back on
+			the way it got there the first time: Arduino, PlatformIO, esptool or another web installer.
+		</p>
+		<p class='mb-4'>
+			For an older version, or to flash without this page, download its <code>-merged.bin</code>{" "}
+			from the <Link href={site.links.releases}>releases</Link> and write it at 0 with <Link
+				href='https://docs.espressif.com/projects/esptool/'>esptool</Link
+			>. It's the same four files as one image for the whole flash, so the board forgets its Wi-Fi too:
+		</p>
+		<pre class='overflow-x-auto rounded-md p-4 font-mono text-sm'>{flash}</pre>
+		{
+			firmware && (
+				<p class='mt-4 text-sm'>
+					This version's is{" "}
+					<Link class='font-mono' href={mergedUrl}>
+						{merged}
+					</Link>
+					, sha256 <code class='break-all'>{firmware.merged.sha256}</code>.
+				</p>
+			)
+		}
+		<p class='mt-4'>Or build it yourself, see <Link href={readme("setup-from-zero")}>Setup from zero</Link>.</p>
+
+		<h2 class='mt-12 mb-3 text-xl font-[650]'>If it doesn't work</h2>
+		<ul class='list-disc space-y-2 pl-6'>
+			<li>
+				<strong>No port to pick:</strong> try another cable. On Windows, the CH340 may need its driver.
+			</li>
+			<li>
+				<strong>It can't connect to the board:</strong> hold the BOOT button, press and release RST, let go of BOOT, then
+				press Install again.
+			</li>
+			<li>
+				<strong>It doesn't ask for Wi-Fi:</strong> press the board's RST button and press Install again. More in <Link
+					href={readme("troubleshooting")}>Troubleshooting</Link
+				>.
+			</li>
+		</ul>
+	</main>
+
+	<SiteFooter />
+</BaseLayout>
+
+<script>
+	import "esp-web-tools/dist/web/install-button.js";
+</script>
+
+<style>
+	/* Until the script defines the button, its fallback lines would show next to it */
+	esp-web-install-button:not(:defined) > :not([slot="activate"]) {
+		display: none;
+	}
+</style>
