@@ -6,7 +6,7 @@
 //  urgent state (see LedStyle). Display only: nothing here can answer or
 //  approve anything in an agent session.
 //
-// HTTP API, form or query parameters, all plain text:
+// HTTP API, form or query parameters, plain-text replies unless noted:
 //   POST /status  source, key, session, app, state, kind, msg
 //                 source names the Rex server, key the pane and record.
 //                 state is idle, working, done, blocked, error or clear.
@@ -17,6 +17,9 @@
 //   POST /reset   source. Drops everything from that source.
 //   GET  /        plain-text dump of what the display holds.
 //   GET  /screen.bmp  what the screen shows, read back from the display.
+//   GET  /api/settings  the settings as JSON: {"rows_compact":false}
+//   POST /api/settings  rows_compact=true|false; replies with the settings.
+//   GET  /settings  the settings page: loads the settings UI from the website.
 // A source that sends nothing for STALE_MS is shown grey and ignored by the
 //  LED, so a sleeping laptop leaves no "working" behind.
 //
@@ -81,6 +84,16 @@
 #define KEY_WIFI_SSID "wifi_ssid"
 #define KEY_WIFI_PASSWORD "wifi_pass"
 #define KEY_ROWS_COMPACT "rows_compact"
+
+// The settings UI lives on the website. SETTINGS_UI_SRI is the sha384 of that
+//  exact file, so a board only runs the UI release it was built for.
+#define SETTINGS_SITE "https://cheap-rex-display.pages.dev"
+#ifndef SETTINGS_UI
+#define SETTINGS_UI SETTINGS_SITE "/prototypes/settings-ui.js"
+#endif
+#ifndef SETTINGS_UI_SRI
+#define SETTINGS_UI_SRI "sha384-MB1P3PV2fXSgDvho0EwuIof+r1YX/0jAEIFaohp7cuzHwVzN7hS3SlK8ds/8mbyX"
+#endif
 
 // Joining Wi-Fi. While offline the board starts over every REJOIN_MS. The
 //  hotspot opens once the network in use couldn't be joined for SETUP_AFTER_MS:
@@ -579,6 +592,41 @@ void handleScreen() {
     }
     server.sendContent((const char *)line, lineBytes);
   }
+}
+
+// The settings, for the settings UI. It runs on the board's own page (below),
+//  so it calls these from the same origin and no CORS headers are needed.
+void sendSettings() {
+  server.send(200, "application/json", String("{\"rows_compact\":") + (compactRows ? "true" : "false") + "}\n");
+}
+
+void handleSettingsSave() {
+  if (server.hasArg(KEY_ROWS_COMPACT)) {
+    String v = server.arg(KEY_ROWS_COMPACT);
+    if (v != "true" && v != "false") {
+      server.send(400, "text/plain", "rows_compact is true or false\n");
+      return;
+    }
+    if ((v == "true") != compactRows) {
+      setCompactRows(v == "true");
+      page = 0;
+      dirty = true;
+    }
+  }
+  sendSettings();
+}
+
+// A page from the board's own address that runs the settings UI from the
+//  website, so the UI reaches the board without asking the browser for local
+//  network access. The integrity hash pins the one UI release
+//  this firmware was built for.
+void handleSettingsPage() {
+  server.send(200, "text/html",
+    "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\">"
+    "<title>Cheap Rex Display settings</title><div id=crd>Loading the settings from " SETTINGS_SITE "...</div>"
+    "<script type=module src=\"" SETTINGS_UI "\" integrity=\"" SETTINGS_UI_SRI "\" crossorigin=anonymous></script>"
+    "<script>addEventListener('error',e=>{if(e.target.tagName==='SCRIPT')crd.textContent="
+    "'The settings come from " SETTINGS_SITE ", which this computer could not load. Is it online?'},true)</script>");
 }
 
 void setLed(uint8_t r, uint8_t g, uint8_t b) {
@@ -1831,6 +1879,9 @@ void setup() {
   server.on("/reset", HTTP_POST, handleReset);
   server.on("/", HTTP_GET, handleDump);
   server.on("/screen.bmp", HTTP_GET, handleScreen);
+  server.on("/api/settings", HTTP_GET, sendSettings);
+  server.on("/api/settings", HTTP_POST, handleSettingsSave);
+  server.on("/settings", HTTP_GET, handleSettingsPage);
   server.begin();
   tapServer.begin();
   serving = true;
