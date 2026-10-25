@@ -144,6 +144,7 @@
 #define HEADER_H 24
 #define ROW_H_FINGER 43   // 5 rows; resistive touch wants targets of 40 px or more
 #define ROW_H_COMPACT 24  // 9 rows, for the stylus
+#define MAX_SLOTS ((SCREEN_H - HEADER_H) / ROW_H_COMPACT)
 #define PAGE_MS 30000     // a later page goes back to the first after this long untouched
 #define MAX_ENTRIES 32
 #define MAX_SOURCES 4
@@ -226,6 +227,13 @@ TapClient tapClients[MAX_SOURCES];
 Row drawnRows[MAX_ENTRIES];
 int drawnCount = 0;
 TFT_eSPI tft = TFT_eSPI();
+// The header and each row slot are drawn off-screen in here and sent in one go,
+//  so the screen never shows a slot cleared and half drawn. One finger-sized
+//  row at 16 bits is 27.5 KB.
+TFT_eSprite canvas = TFT_eSprite(&tft);
+// A hash of what the header (0) and each row slot (1 on) last sent, so slots
+//  that come out the same are not sent again. 0 means unknown.
+uint32_t shownSlots[MAX_SLOTS + 1];
 SPIClass touchSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
 WebServer server(80);
@@ -703,25 +711,59 @@ void drawBlended(const Bitmap4 &bmp, int x, int y, uint8_t r, uint8_t g, uint8_t
     for (int xx = 0; xx < bmp.w; xx++) {
       uint8_t a = level(bmp, xx, yy);
       if (a > 0) {
-        tft.drawPixel(x + xx, y + yy, tft.color565(r + (255 - r) * a / 15, g + (255 - g) * a / 15, b + (255 - b) * a / 15));
+        canvas.drawPixel(x + xx, y + yy, canvas.color565(r + (255 - r) * a / 15, g + (255 - g) * a / 15, b + (255 - b) * a / 15));
       }
     }
   }
 }
 
-// The grey bar at the top, with Rex and a title
+// Sends the canvas's top h lines to the screen at y, unless the slot already
+//  shows exactly that. The hash covers the pixels and where they go.
+void sendSlot(int slot, int y, int h) {
+  const uint16_t *px = (const uint16_t *)canvas.getPointer();
+  if (!px) {
+    return;
+  }
+
+  uint32_t hash = 2166136261u ^ (y << 8 | h);
+  for (int i = 0; i < SCREEN_W * h; i++) {
+    hash = (hash ^ px[i]) * 16777619u;
+  }
+  hash = hash ? hash : 1;
+  if (hash == shownSlots[slot]) {
+    return;
+  }
+
+  shownSlots[slot] = hash;
+  canvas.pushSprite(0, y, 0, 0, SCREEN_W, h);
+}
+
+// Clears the whole screen for a screen of its own, and forgets what the slots
+//  showed, so the list comes back in full after it.
+void clearScreen() {
+  tft.fillScreen(TFT_BLACK);
+  memset(shownSlots, 0, sizeof(shownSlots));
+}
+
+// The grey bar at the top, with Rex and a title, drawn in the canvas
 void drawBar(const String &title) {
-  tft.fillRect(0, 0, SCREEN_W, HEADER_H, TFT_DARKGREY);
+  canvas.fillRect(0, 0, SCREEN_W, HEADER_H, TFT_DARKGREY);
   // TFT_DARKGREY is 123, 125, 123
   drawBlended(HEADER_REX, 3, (HEADER_H - HEADER_REX.h) / 2, 123, 125, 123);
-  tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
-  tft.setTextDatum(ML_DATUM);
-  tft.drawString(title, 3 + HEADER_REX.w + 5, HEADER_H / 2, 2);
+  canvas.setTextColor(TFT_WHITE, TFT_DARKGREY);
+  canvas.setTextDatum(ML_DATUM);
+  canvas.drawString(title, 3 + HEADER_REX.w + 5, HEADER_H / 2, 2);
+}
+
+// The bar alone, for the Wi-Fi screens
+void showBar(const String &title) {
+  drawBar(title);
+  sendSlot(0, 0, HEADER_H);
 }
 
 // Text cut to fit `width` pixels in `font`
 String fitText(String text, int width, int font) {
-  while (text.length() > 0 && tft.textWidth(text, font) > width) {
+  while (text.length() > 0 && canvas.textWidth(text, font) > width) {
     text.remove(text.length() - 1);
   }
   return text;
@@ -732,14 +774,14 @@ String fitText(String text, int width, int font) {
 //  finger-sized, two wide ones while they are compact.
 void drawRowsToggle() {
   int x = SCREEN_W - TOGGLE_W + 6, w = TOGGLE_W - 9;
-  tft.fillRoundRect(x, 2, w, HEADER_H - 4, 4, COLOR_BUTTON);
+  canvas.fillRoundRect(x, 2, w, HEADER_H - 4, 4, COLOR_BUTTON);
   bool toCompact = !compactRows;
   int lines = toCompact ? 4 : 2, gap = toCompact ? 4 : 8, thick = toCompact ? 2 : 4;
   int top = HEADER_H / 2 - ((lines - 1) * gap + thick) / 2;
   for (int i = 0; i < lines; i++) {
     int y = top + i * gap;
-    tft.fillRect(x + 5, y, 2, thick, i == 0 ? TFT_RED : TFT_BLUE);
-    tft.fillRect(x + 9, y + thick / 2 - (toCompact ? 1 : 0), w - 14, toCompact ? 1 : 2, TFT_WHITE);
+    canvas.fillRect(x + 5, y, 2, thick, i == 0 ? TFT_RED : TFT_BLUE);
+    canvas.fillRect(x + 9, y + thick / 2 - (toCompact ? 1 : 0), w - 14, toCompact ? 1 : 2, TFT_WHITE);
   }
 }
 
@@ -749,20 +791,20 @@ void drawHeader() {
   int sourcesW = 0;
   for (int i = 0; i < MAX_SOURCES; i++) {
     if (sources[i].used) {
-      sourcesW += tft.textWidth(sources[i].name, 2) + 8;
+      sourcesW += canvas.textWidth(sources[i].name, 2) + 8;
     }
   }
   String title = WiFi.status() == WL_CONNECTED ? String(HOSTNAME ".local ") + WiFi.localIP().toString() : String("Wi-Fi connecting...");
   int room = SCREEN_W - TOGGLE_W - 4 - sourcesW - (3 + HEADER_REX.w + 5);
   // With many sources the address alone, which is the part to type somewhere.
-  if (tft.textWidth(title, 2) > room && WiFi.status() == WL_CONNECTED) {
+  if (canvas.textWidth(title, 2) > room && WiFi.status() == WL_CONNECTED) {
     title = WiFi.localIP().toString();
   }
   drawBar(fitText(title, room, 2));
   drawRowsToggle();
 
   int x = SCREEN_W - TOGGLE_W - 4;
-  tft.setTextDatum(MR_DATUM);
+  canvas.setTextDatum(MR_DATUM);
 
   for (int i = MAX_SOURCES - 1; i >= 0; i--) {
     if (!sources[i].used) {
@@ -770,10 +812,11 @@ void drawHeader() {
     }
 
     bool stale = isStale(sources[i].name);
-    tft.setTextColor(stale ? TFT_BLACK : TFT_WHITE, TFT_DARKGREY);
-    tft.drawString(sources[i].name, x, HEADER_H / 2, 2);
-    x -= tft.textWidth(sources[i].name, 2) + 8;
+    canvas.setTextColor(stale ? TFT_BLACK : TFT_WHITE, TFT_DARKGREY);
+    canvas.drawString(sources[i].name, x, HEADER_H / 2, 2);
+    x -= canvas.textWidth(sources[i].name, 2) + 8;
   }
+  sendSlot(0, 0, HEADER_H);
 }
 
 // Length of the pane part of a key, before the '#'
@@ -816,66 +859,67 @@ int rowHeight() {
   return compactRows ? ROW_H_COMPACT : ROW_H_FINGER;
 }
 
-// Draws drawn row r for entry e, clearing it first, so one row can change alone.
-// A compact row is one line. A finger-sized row gives the message a second line
+// Draws drawn row r for entry e in the canvas and sends it, so one row can
+//  change alone. A compact row is one line. A finger-sized row gives the message a second line
 //  of its own, and a divider below, so the tap targets are easy to tell apart.
 void drawRow(int r, const Entry &e) {
   int h = rowHeight();
-  int y = HEADER_H + r * h;
+  int y = 0;
   int top = compactRows ? y + h / 2 : y + 13;
   bool stale = isStale(e.source);
   uint16_t chip = stale ? COLOR_GREY : stateColors[e.state];
   uint16_t text = stale ? COLOR_GREY : TFT_WHITE;
 
-  tft.fillRect(0, y, SCREEN_W, h, TFT_BLACK);
-  tft.fillRect(0, y + 2, 6, h - 4, chip);
+  canvas.fillRect(0, y, SCREEN_W, h, TFT_BLACK);
+  canvas.fillRect(0, y + 2, 6, h - 4, chip);
   if (!compactRows) {
-    tft.drawFastHLine(10, y + h - 1, SCREEN_W - 10, COLOR_DIVIDER);
+    canvas.drawFastHLine(10, y + h - 1, SCREEN_W - 10, COLOR_DIVIDER);
   }
-  tft.setTextDatum(ML_DATUM);
-  tft.setTextColor(chip, TFT_BLACK);
+  canvas.setTextDatum(ML_DATUM);
+  canvas.setTextColor(chip, TFT_BLACK);
   String label = e.state == BLOCKED && e.kind[0] ? String(e.kind) : String(stateNames[e.state]);
-  tft.drawString(label, 10, top, 2);
+  canvas.drawString(label, 10, top, 2);
 
   // The time sits at the right edge of the first line.
   char *age = drawnRows[r].age;
   formatAge(millis() - e.since, age, sizeof(drawnRows[r].age));
   int right = SCREEN_W - 2;
   if (age[0]) {
-    tft.setTextColor(COLOR_GREY, TFT_BLACK);
-    tft.setTextDatum(MR_DATUM);
-    tft.drawString(age, SCREEN_W - 3, top, 2);
-    tft.setTextDatum(ML_DATUM);
-    right = SCREEN_W - 3 - tft.textWidth(age, 2) - 8;
+    canvas.setTextColor(COLOR_GREY, TFT_BLACK);
+    canvas.setTextDatum(MR_DATUM);
+    canvas.drawString(age, SCREEN_W - 3, top, 2);
+    canvas.setTextDatum(ML_DATUM);
+    right = SCREEN_W - 3 - canvas.textWidth(age, 2) - 8;
   }
 
   String who = String(e.session) + " " + e.app;
-  tft.setTextColor(text, TFT_BLACK);
-  tft.drawString(fitText(who, right - 86, 2), 86, top, 2);
+  canvas.setTextColor(text, TFT_BLACK);
+  canvas.drawString(fitText(who, right - 86, 2), 86, top, 2);
 
   // The message gets what is left, cut to fit.
-  tft.setTextColor(COLOR_GREY, TFT_BLACK);
+  canvas.setTextColor(COLOR_GREY, TFT_BLACK);
   if (compactRows) {
-    int msgX = 86 + tft.textWidth(who + "  ", 2);
-    tft.drawString(fitText(e.msg, right - msgX, 2), msgX, top, 2);
+    int msgX = 86 + canvas.textWidth(who + "  ", 2);
+    canvas.drawString(fitText(e.msg, right - msgX, 2), msgX, top, 2);
   } else if (e.msg[0]) {
-    tft.drawString(fitText(e.msg, SCREEN_W - 13, 2), 10, y + 31, 2);
+    canvas.drawString(fitText(e.msg, SCREEN_W - 13, 2), 10, y + 31, 2);
   } else {
     // A dash for no message, so every row keeps the same two lines.
-    tft.drawFastHLine(10, y + 31, 12, COLOR_GREY);
+    canvas.drawFastHLine(10, y + 31, 12, COLOR_GREY);
   }
+  sendSlot(r + 1, HEADER_H + r * h, h);
 }
 
 // A button that turns the page, with an arrow. Dimmed at either end.
 void drawPageButton(int x, int y, int h, bool next, const String &label, bool enabled) {
   uint16_t color = enabled ? TFT_WHITE : COLOR_DIVIDER;
-  tft.fillRoundRect(x, y, PAGE_BUTTON_W, h, 6, enabled ? COLOR_BUTTON : TFT_BLACK);
-  tft.drawRoundRect(x, y, PAGE_BUTTON_W, h, 6, enabled ? COLOR_GREY : COLOR_DIVIDER);
+  canvas.fillRoundRect(x, y, PAGE_BUTTON_W, h, 6, enabled ? COLOR_BUTTON : TFT_BLACK);
+  canvas.drawRoundRect(x, y, PAGE_BUTTON_W, h, 6, enabled ? COLOR_GREY : COLOR_DIVIDER);
   int mid = y + h / 2, tip = next ? x + PAGE_BUTTON_W - 10 : x + 10, back = next ? tip - 6 : tip + 6;
-  tft.fillTriangle(tip, mid, back, mid - 6, back, mid + 6, color);
-  tft.setTextColor(color, enabled ? COLOR_BUTTON : TFT_BLACK);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString(label, x + PAGE_BUTTON_W / 2 + (next ? -6 : 6), mid, 2);
+  canvas.fillTriangle(tip, mid, back, mid - 6, back, mid + 6, color);
+  canvas.setTextColor(color, enabled ? COLOR_BUTTON : TFT_BLACK);
+  canvas.setTextDatum(MC_DATUM);
+  canvas.drawString(label, x + PAGE_BUTTON_W / 2 + (next ? -6 : 6), mid, 2);
 }
 
 void drawRows() {
@@ -907,14 +951,27 @@ void drawRows() {
 
   int h = rowHeight();
   int slots = (SCREEN_H - HEADER_H) / h;
-  tft.fillRect(0, HEADER_H, SCREEN_W, SCREEN_H - HEADER_H, TFT_BLACK);
+  // When the rows change size, every slot moves, and the lines below the last
+  //  slot are left from the other size.
+  static int shownH = 0;
+  if (h != shownH) {
+    shownH = h;
+    memset(shownSlots + 1, 0, MAX_SLOTS * sizeof(shownSlots[0]));
+    tft.fillRect(0, HEADER_H + slots * h, SCREEN_W, SCREEN_H - HEADER_H - slots * h, TFT_BLACK);
+  }
   drawnCount = 0;
   moreSlot = -1;
   if (count == 0) {
     page = 0;
-    tft.setTextColor(COLOR_GREY, TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("No agent status yet", SCREEN_W / 2, (SCREEN_H + HEADER_H) / 2, 2);
+    // The note spans slots: each draws it shifted up by its own place, and the
+    //  canvas cuts off the rest.
+    for (int s = 0; s < slots; s++) {
+      canvas.fillRect(0, 0, SCREEN_W, h, TFT_BLACK);
+      canvas.setTextColor(COLOR_GREY, TFT_BLACK);
+      canvas.setTextDatum(MC_DATUM);
+      canvas.drawString("No agent status yet", SCREEN_W / 2, (SCREEN_H - HEADER_H) / 2 - s * h, 2);
+      sendSlot(s + 1, HEADER_H + s * h, h);
+    }
     return;
   }
 
@@ -940,17 +997,25 @@ void drawRows() {
     drawRow(r, e);
   }
 
+  // Slots under the last row are blank.
+  for (int r = drawnCount; r < (pages > 1 ? slots - 1 : slots); r++) {
+    canvas.fillRect(0, 0, SCREEN_W, h, TFT_BLACK);
+    sendSlot(r + 1, HEADER_H + r * h, h);
+  }
+
   if (pages > 1) {
     moreSlot = slots - 1;
-    int y = HEADER_H + moreSlot * h;
+    int y = 0;
     int after = count - first - perPage;
+    canvas.fillRect(0, 0, SCREEN_W, h, TFT_BLACK);
 
     drawPageButton(6, y + 3, h - 6, false, String("Back"), page > 0);
     drawPageButton(SCREEN_W - 6 - PAGE_BUTTON_W, y + 3, h - 6, true, after > 0 ? String(after) + " more" : String("More"), after > 0);
 
-    tft.setTextColor(COLOR_GREY, TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString(String(page + 1) + " / " + pages, SCREEN_W / 2, y + h / 2, 2);
+    canvas.setTextColor(COLOR_GREY, TFT_BLACK);
+    canvas.setTextDatum(MC_DATUM);
+    canvas.drawString(String(page + 1) + " / " + pages, SCREEN_W / 2, y + h / 2, 2);
+    sendSlot(moreSlot + 1, HEADER_H + moreSlot * h, h);
   }
 }
 
@@ -1062,6 +1127,7 @@ void checkTouch() {
   bool sent = sendTap(drawnRows[r]);
   Serial.printf("Tap row %d %s %s: %s\n", r, drawnRows[r].source, drawnRows[r].key, sent ? "sent" : "no watcher");
   tft.drawRect(0, HEADER_H + r * h, SCREEN_W, h, sent ? TFT_WHITE : COLOR_GREY);
+  shownSlots[r + 1] = 0;
   holdUntil = millis() + TAP_FLASH_MS;
   dirty = true;
 }
@@ -1101,8 +1167,8 @@ void drawButton(int x, int y, int w, int h, const char *label, uint16_t color) {
 
 // A screen with a title and a line below it, for Wi-Fi steps that take a moment
 void drawNotice(const String &title, const String &line) {
-  tft.fillScreen(TFT_BLACK);
-  drawBar("Wi-Fi");
+  clearScreen();
+  showBar("Wi-Fi");
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString(fitText(title, SCREEN_W - 16, 4), SCREEN_W / 2, 110, 4);
@@ -1457,8 +1523,8 @@ void startHotspot() {
 }
 
 void drawSetupScreen() {
-  tft.fillScreen(TFT_BLACK);
-  drawBar("Wi-Fi setup");
+  clearScreen();
+  showBar("Wi-Fi setup");
   tft.setTextDatum(ML_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawString("1. On a phone or computer, join:", 8, 40, 2);
@@ -1511,8 +1577,8 @@ void offerForget() {
   const int buttonY = 130, buttonW = 130, buttonH = 56, keepX = 20, forgetX = 170;
   Serial.println("Wi-Fi: asking whether to forget the saved network");
 
-  tft.fillScreen(TFT_BLACK);
-  drawBar("Wi-Fi");
+  clearScreen();
+  showBar("Wi-Fi");
 
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -1542,7 +1608,7 @@ void offerForget() {
   }
 
   Serial.println("Wi-Fi: kept the saved network");
-  tft.fillScreen(TFT_BLACK);
+  clearScreen();
 }
 
 unsigned long splashPressStart = 0, splashPressSeen = 0;  // the press on the splash, 0 when none
@@ -1661,7 +1727,7 @@ void drawColumns(const Bitmap1 &b, int x, int y, int c0, int c1) {
 // It waits for a finger to lift first, since a press may turn into a hold.
 void splash() {
   unsigned long start = millis();
-  tft.fillScreen(TFT_BLACK);
+  clearScreen();
   bool skipped = false;
 
   float total = 0, drawn = 0;
@@ -1713,7 +1779,7 @@ void splash() {
   while (touch.touched()) {
     delay(10);
   }
-  tft.fillScreen(TFT_BLACK);
+  clearScreen();
 }
 
 void setup() {
@@ -1727,7 +1793,10 @@ void setup() {
 
   tft.init();
   tft.setRotation(1);
-  tft.fillScreen(TFT_BLACK);
+  clearScreen();
+  if (!canvas.createSprite(SCREEN_W, ROW_H_FINGER)) {
+    Serial.println("No memory for the row canvas");
+  }
 
   touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSPI);
