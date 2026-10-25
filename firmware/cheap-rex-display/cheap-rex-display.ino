@@ -92,7 +92,7 @@
 #define SETTINGS_UI SETTINGS_SITE "/prototypes/settings-ui.js"
 #endif
 #ifndef SETTINGS_UI_SRI
-#define SETTINGS_UI_SRI "sha384-MB1P3PV2fXSgDvho0EwuIof+r1YX/0jAEIFaohp7cuzHwVzN7hS3SlK8ds/8mbyX"
+#define SETTINGS_UI_SRI "sha384-hivIFvtD2UAZlb4TCOeiy7s1KZXShn3bUktgBwOeLurTFK/sTlZBzp1+q/V6xmZD"
 #endif
 
 // Joining Wi-Fi. While offline the board starts over every REJOIN_MS. The
