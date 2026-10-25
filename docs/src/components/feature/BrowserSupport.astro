@@ -1,0 +1,98 @@
+---
+import Badge from "../ui/Badge.astro";
+import Link from "../ui/Link.astro";
+import { supportedBrowserList, type FeatureSupport } from "../../config/browser-support";
+
+interface Props {
+	support: FeatureSupport;
+	/** The board the installer targets, shown under the card */
+	note?: string;
+}
+
+const { support, note } = Astro.props;
+
+const headline = "max-w-[34ch] text-xl font-[650] leading-[1.15] text-balance";
+const sub = "mt-2 max-w-[52ch] text-sm text-muted-foreground";
+---
+
+<section aria-label={`${support.feature} browser support`} data-browser-support data-api={support.api}>
+	<div class='flex items-start justify-between flex-wrap gap-2'>
+		<div>
+			<p class:list={[headline, "text-muted-foreground"]} data-pending>Most browsers can {support.action}.</p>
+			<p class:list={[headline, "text-primary"]} data-when='yes' hidden>This browser can {support.action}.</p>
+			<p class:list={[headline, "text-coral"]} data-when='no' hidden>This browser can't {support.action}.</p>
+		</div>
+
+		<div class='shrink-0'>
+			<slot />
+		</div>
+	</div>
+
+	<p class={sub} data-pending>{support.description}</p>
+	<p class={sub} data-when='yes' hidden>{support.description}</p>
+	<p class={sub} id='browser-support-reason' data-blocked-reason data-when='no' hidden>
+		Open this page in {supportedBrowserList(support)} on a computer, or <Link href={support.fallback.href}
+			>{support.fallback.label}</Link
+		>.
+	</p>
+
+	<div class='mt-5 space-y-2'>
+		<div class='flex flex-wrap gap-x-1.5 gap-y-1'>
+			<Badge>{support.feature}</Badge>
+			<Badge>Browser support</Badge>
+		</div>
+
+		<div class='rounded-lg border border-border bg-surface p-6 pt-0'>
+			<ul class='grid grid-cols-2 gap-x-5 gap-y-4 max-[359px]:grid-cols-1 min-[700px]:grid-cols-5'>
+				{
+					support.rows.map((row) => (
+						<li
+							class="group relative pt-2.5 data-[current]:border-foreground data-[current]:before:absolute data-[current]:before:inset-x-0 data-[current]:before:-top-px data-[current]:before:h-0.5 data-[current]:before:bg-foreground data-[current]:before:rounded-lg data-[current]:before:content-['']"
+							data-browser={row.id}>
+							<span class='flex items-center gap-0.5'>
+								<span class:list={["shrink-0", row.support === "yes" ? "text-primary" : "text-coral"]}>
+									<svg
+										class='block size-3'
+										viewBox='0 0 16 16'
+										fill='none'
+										stroke='currentColor'
+										stroke-width='1.8'
+										stroke-linecap='round'
+										stroke-linejoin='round'
+										aria-hidden='true'>
+										{row.support === "yes" ? <path d='M3 8.5 6.3 11.8 13 5' /> : <path d='M4 4l8 8M12 4l-8 8' />}
+									</svg>
+									<span class='sr-only'>{row.support === "yes" ? "supported" : "not supported"}</span>
+								</span>
+								<span class='inline-flex items-center gap-1.5 font-mono text-xs tracking-[0.1em] text-muted-foreground uppercase group-data-[current]:text-foreground'>
+									{row.name}
+
+									<span class='font-mono text-xs text-muted-foreground tabular-nums'>{row.version ?? "-"}</span>
+								</span>
+							</span>
+						</li>
+					))
+				}
+			</ul>
+
+			<div class='mt-5 border-t border-border pt-3 text-xs text-muted-foreground'>
+				<p class='flex flex-wrap justify-between gap-x-4 gap-y-1'>
+					<span>Current as of {support.asOf}.</span>
+					<a
+						class='font-mono whitespace-nowrap text-primary underline underline-offset-2 hover:text-foreground'
+						href={support.caniuse}>More on caniuse<span aria-hidden='true'> ↗</span></a
+					>
+				</p>
+				<p class='mt-1 max-w-[56ch]'>{support.footnote}</p>
+			</div>
+		</div>
+	</div>
+
+	{note && <p class='mt-4 text-sm text-muted-foreground'>{note}</p>}
+</section>
+
+<script>
+	import { initBrowserSupport } from "./browser-support";
+
+	initBrowserSupport();
+</script>

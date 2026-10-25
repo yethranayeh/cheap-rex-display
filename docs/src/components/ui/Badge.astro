@@ -1,0 +1,15 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+type Props = HTMLAttributes<"span">;
+
+const { class: className, ...rest } = Astro.props;
+---
+
+<span
+	class:list={[
+		"inline-flex h-6 items-center rounded-md bg-surface-raised px-2.5 text-[0.8125rem] font-medium leading-none whitespace-nowrap text-muted-foreground",
+		className
+	]}
+	{...rest}><slot /></span
+>

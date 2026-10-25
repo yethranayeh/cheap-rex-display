@@ -2,10 +2,13 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 import SiteHeader from "../components/feature/SiteHeader.astro";
 import SiteFooter from "../components/feature/SiteFooter.astro";
+import BrowserSupport from "../components/feature/BrowserSupport.astro";
+import Button from "../components/ui/Button.astro";
 import Highlight from "../components/ui/Highlight.astro";
 import Link from "../components/ui/Link.astro";
 
 import { site } from "../config/site";
+import { webSerial } from "../config/browser-support";
 import { firmware, manifestPath } from "../config/firmware";
 
 const readme = (anchor: string) => `${site.links.repo}#${anchor}`;
@@ -39,34 +42,29 @@ const role = (file: string) => roles[file.slice(file.lastIndexOf("-") + 1, -".bi
 
 		{
 			firmware ? (
-				<div class='rounded-lg border border-border bg-surface p-6'>
-					<esp-web-install-button manifest={manifestPath}>
-						<button
-							slot='activate'
-							class='cursor-pointer rounded-full bg-primary px-6 py-3 font-[650] text-primary-foreground hover:bg-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'>
-							Install {firmware.name} {firmware.version}
-						</button>
-						<p slot='unsupported'>
-							This browser can't reach USB serial ports. Open this page on a computer, in a browser with{" "}
-							<Link href='https://caniuse.com/web-serial'>Web Serial</Link>, or flash the image yourself, see{" "}
-							<Link href='#going-back'>Going back</Link>.
-						</p>
-						<p slot='not-allowed'>
-							The installer only works over HTTPS. Open <Link href={`${site.url}/install/`}>this page on its site</Link>
-							.
-						</p>
-					</esp-web-install-button>
+				<>
+					<BrowserSupport support={webSerial} note='For the ESP32-2432S028 board'>
+						<esp-web-install-button manifest={manifestPath} class='block'>
+							<Button slot='activate' class='w-full' data-install>
+								Install {firmware.version}
+							</Button>
+							<Button slot='unsupported' class='w-full' disabled>
+								Install {firmware.version}
+							</Button>
+							<p slot='not-allowed' class='max-w-xs text-sm text-muted-foreground'>
+								The installer only works over HTTPS. Open{" "}
+								<Link href={`${site.url}/install/`}>this page on its site</Link>.
+							</p>
+						</esp-web-install-button>
+					</BrowserSupport>
+
 					<noscript>
-						<p>
+						<p class='mt-4 text-sm text-muted-foreground'>
 							The installer needs JavaScript. Or flash the image yourself, see{" "}
 							<Link href='#going-back'>Going back</Link>.
 						</p>
 					</noscript>
-					<p class='mt-4 text-sm text-muted-foreground'>
-						Needs a computer and a browser with <Link href='https://caniuse.com/web-serial'>Web Serial</Link>. For the
-						ESP32-2432S028, the board this is built and tested on.
-					</p>
-				</div>
+				</>
 			) : (
 				<div class='rounded-lg border border-border bg-surface p-6'>
 					<p>There is no build yet.</p>
