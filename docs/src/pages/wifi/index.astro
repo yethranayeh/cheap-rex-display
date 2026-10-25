@@ -1,0 +1,83 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import Highlight from "../../components/ui/Highlight.astro";
+import Link from "../../components/ui/Link.astro";
+
+import { readme } from "../../config/site";
+---
+
+<DocsLayout
+	breadcrumbs={[{ name: "Wi-Fi", path: "/wifi/" }]}
+	title='Wi-Fi'
+	description='Give Cheap Rex Display your Wi-Fi: over USB from your browser, or from a phone through the setup hotspot the board opens by itself.'>
+	<h1 class='mb-4 text-3xl font-[650]'>Wi-Fi</h1>
+	<p class='mb-8 text-lg'>
+		The board needs your Wi-Fi once. It saves the network and joins it on every start. There are two ways to give it
+		one, and both need a <strong>2.4 GHz</strong> network: the ESP32 doesn't see 5 GHz.
+	</p>
+
+	<ul class='mb-4 list-disc space-y-2 pl-6'>
+		<li>
+			<strong><Link href='/wifi/improv/'>Over USB, from your browser</Link>:</strong> right after installing, or any time
+			later. Needs a computer and a browser with Web Serial.
+		</li>
+		<li>
+			<strong><Link href='#hotspot'>From a phone, through the setup hotspot</Link>:</strong> the board opens its own Wi-Fi
+			when it has none to join. Works with any phone or computer.
+		</li>
+	</ul>
+
+	<h2 id='order' class='mt-12 mb-3 text-xl font-[650]'>What it joins</h2>
+	<p class='mb-4'>On every start, the board joins the first of these it has:</p>
+	<ol class='list-decimal space-y-2 pl-6'>
+		<li>the network saved on the board, through USB or the setup hotspot;</li>
+		<li>
+			the one in <code>secrets.h</code>, if you built the firmware yourself with it (see <Link
+				offsite
+				href={readme("wi-fi")}>Wi-Fi</Link
+			> in the README);
+		</li>
+		<li>none: it opens the setup hotspot.</li>
+	</ol>
+
+	<h2 id='hotspot' class='mt-12 mb-3 text-xl font-[650]'>The setup hotspot</h2>
+	<p class='mb-4'>
+		With nothing to join, the board says so at the bottom of the boot animation, then opens its own Wi-Fi. The screen
+		shows its name, <Highlight>crd-setup-</Highlight> and four letters, and a password that is new each time the hotspot opens.
+	</p>
+	<ol class='list-decimal space-y-2 pl-6'>
+		<li>
+			On a phone or computer, join that Wi-Fi with the password from the screen. If it isn't in the list yet, wait up to
+			a minute or open the Wi-Fi settings again: some phones, iPhones especially, are slow to show a new network.
+		</li>
+		<li>A setup page opens by itself. If it doesn't, go to <code>http://192.168.4.1</code>.</li>
+		<li>
+			Pick your network, enter its password and choose <strong>Save</strong>. <strong>Scan again</strong> looks once more.
+		</li>
+	</ol>
+	<p class='mt-4'>
+		The board joins the network, saves it and restarts onto it, and the hotspot goes away. If it can't join, its screen
+		says so and the hotspot stays: join it again and retry. Check the password, and that the network is 2.4 GHz.
+	</p>
+	<p class='mt-4'>
+		Some phones leave a Wi-Fi without internet after a while. If yours does, tell it to stay on the hotspot.
+	</p>
+
+	<h2 id='moved' class='mt-12 mb-3 text-xl font-[650]'>Moving to another network</h2>
+	<p>
+		When the board can't join its network for 3 minutes, say because you took it somewhere else, it opens the setup
+		hotspot by itself. While no device is on the hotspot, it keeps trying the old network, and goes back to it once it's
+		there again. A power cut that restarts your router too won't send it to setup.
+	</p>
+
+	<h2 id='forget' class='mt-12 mb-3 text-xl font-[650]'>Forgetting the network</h2>
+	<p class='mb-4'>
+		Hold a finger on the boot animation. After a second the bottom line counts down, and after 5 seconds the board asks
+		whether to forget the saved network. Tap <strong>Forget</strong> to forget it and restart, or <strong>Keep</strong>,
+		or wait 10 seconds, to keep it. A short tap still skips the animation.
+	</p>
+	<p>
+		Forgetting is only offered on the board itself, never over the network, and only when a network is saved on the
+		board. Updating the firmware keeps the network; a new install or an erase wipes it.
+	</p>
+</DocsLayout>

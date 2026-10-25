@@ -20,3 +20,6 @@ export const site = {
     rex: "https://www.superlogical.com/rex/docs/installation",
   },
 } as const;
+
+/** A section of the README on GitHub referenced by its heading's anchor */
+export const readme = (anchor: string) => `${site.links.repo}#${anchor}`;

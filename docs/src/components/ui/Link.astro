@@ -1,9 +1,12 @@
 ---
 import type { HTMLAttributes } from "astro/types";
 
-type Props = HTMLAttributes<"a">;
+type Props = HTMLAttributes<"a"> & {
+	/** Marks a link that leaves the site with arrrow for cases that mgiht be misleading */
+	offsite?: boolean;
+};
 
-const { class: className, ...rest } = Astro.props;
+const { class: className, offsite = false, ...rest } = Astro.props;
 ---
 
 <a
@@ -11,5 +14,5 @@ const { class: className, ...rest } = Astro.props;
 		"text-primary underline decoration-2 underline-offset-3 hover:text-foreground hover:decoration-primary",
 		className
 	]}
-	{...rest}><slot /></a
+	{...rest}><slot />{offsite && <span aria-hidden='true'> ↗</span>}</a
 >

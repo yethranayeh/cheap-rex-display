@@ -1,0 +1,25 @@
+---
+interface Props {
+	src: string;
+	alt: string;
+	width: number;
+	height: number;
+	caption: string;
+	class?: string;
+}
+
+const { src, alt, width, height, caption, class: className } = Astro.props;
+---
+
+<figure class:list={["min-w-0", className]}>
+	<img
+		class='block h-auto w-full rounded-lg border border-border bg-ink'
+		src={src}
+		alt={alt}
+		width={width}
+		height={height}
+		loading='lazy'
+		decoding='async'
+	/>
+	<figcaption class='mt-2.5 text-sm leading-normal text-muted-foreground'>{caption}</figcaption>
+</figure>

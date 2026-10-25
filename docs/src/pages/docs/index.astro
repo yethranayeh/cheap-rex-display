@@ -1,0 +1,66 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import Link from "../../components/ui/Link.astro";
+
+import { readme } from "../../config/site";
+
+const sections = [
+	{
+		title: "Get started",
+		offsite: false,
+		links: [
+			{ href: "/install/", name: "Install", text: "flash the board from your browser over USB." },
+			{ href: "/wifi/", name: "Wi-Fi", text: "what the board joins, the setup hotspot, and forgetting a network." },
+			{ href: "/wifi/improv/", name: "Wi-Fi over USB", text: "send your Wi-Fi over the cable, with Improv." }
+		]
+	},
+	{
+		title: "On GitHub",
+		offsite: true,
+		links: [
+			{ href: readme("watcher"), name: "Watcher", text: "the Rex script that sends your agents' status to the board." },
+			{
+				href: readme("several-rex-servers"),
+				name: "Several Rex servers",
+				text: "one board for agents on more than one machine."
+			},
+			{
+				href: readme("troubleshooting"),
+				name: "Troubleshooting",
+				text: "when the board or the watcher doesn't do what it should."
+			},
+			{ href: readme("setup-from-zero"), name: "Setup from zero", text: "build and upload the firmware yourself." },
+			{
+				href: readme("tested-hardware"),
+				name: "Tested hardware",
+				text: "the board and the versions this is built and tested with."
+			}
+		]
+	}
+];
+---
+
+<DocsLayout
+	title='Docs'
+	description='Install Cheap Rex Display, give it your Wi-Fi, and find the watcher, troubleshooting and build guides.'>
+	<h1 class='mb-4 text-3xl font-[650]'>Docs</h1>
+	<p class='mb-8 text-lg'>Everything to get a board running, and where the rest lives.</p>
+
+	{
+		sections.map((section) => (
+			<>
+				<h2 class='mt-12 mb-3 text-xl font-[650]'>{section.title}</h2>
+				<ul class='list-disc space-y-2 pl-6'>
+					{section.links.map((link) => (
+						<li>
+							<Link href={link.href} offsite={section.offsite}>
+								{link.name}
+							</Link>
+							: {link.text}
+						</li>
+					))}
+				</ul>
+			</>
+		))
+	}
+</DocsLayout>

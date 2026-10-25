@@ -1,0 +1,83 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import Highlight from "../../components/ui/Highlight.astro";
+import Thumbnail from "../../components/ui/Thumbnail.astro";
+import Link from "../../components/ui/Link.astro";
+
+import { improvShots } from "./_media";
+---
+
+<DocsLayout
+	breadcrumbs={[
+		{ name: "Wi-Fi", path: "/wifi/" },
+		{ name: "Over USB", path: "/wifi/improv/" }
+	]}
+	title='Wi-Fi over USB'
+	description='Send your Wi-Fi to Cheap Rex Display over its USB cable, from a browser with Web Serial, using Improv.'>
+	<h1 class='mb-4 text-3xl font-[650]'>Wi-Fi over USB</h1>
+	<p class='mb-8 text-lg'>
+		The board listens for Wi-Fi settings on its USB cable at all times, using <Link
+			href='https://www.improv-wifi.com/serial/'>Improv</Link
+		>. A browser with Web Serial, such as Chrome or Edge on a computer, can send them.
+	</p>
+
+	<h2 class='mt-12 mb-3 text-xl font-[650]'>Where to start</h2>
+	<ul class='list-disc space-y-2 pl-6'>
+		<li>
+			<strong>Installing:</strong> the <Link href='/install/'>install page</Link> asks for your Wi-Fi as soon as it has written
+			the firmware.
+		</li>
+		<li>
+			<strong>Already installed:</strong> on the install page, press Install. On a board that runs the same version it offers
+			<Highlight>Connect to Wi-Fi</Highlight> and writes nothing else.
+		</li>
+		<li>
+			<strong>Anywhere else:</strong>{" "}
+			<Link href='https://www.improv-wifi.com/'>improv-wifi.com</Link> does the same with its serial button. The pictures
+			by the steps are from there.
+		</li>
+	</ul>
+
+	<h2 class='mt-12 mb-3 text-xl font-[650]'>Steps</h2>
+	<ol class='list-decimal space-y-2 pl-6'>
+		<li>
+			Close any serial monitor, such as the Arduino IDE's, then plug the board in. Only one program can use the port at
+			a time; with a monitor open, the browser says <Highlight>Failed to open port</Highlight>.
+		</li>
+		<li class='relative'>
+			Pick the board's port. It has a CH340 chip, so look for <Highlight>USB Serial</Highlight>, <Highlight
+				>CH340</Highlight
+			> or <Highlight>wchusbserial</Highlight>.
+			<Thumbnail {...improvShots.pickPort} />
+		</li>
+		<li class='relative'>
+			Pick your network from the list, enter its password and choose Connect. Only 2.4 GHz networks show up.
+			<Thumbnail {...improvShots.configure} />
+		</li>
+		<li class='relative'>
+			The board joins, saves the network and restarts. Its address shows in the header of the board's screen once it's
+			back.
+			<Thumbnail {...improvShots.provisioned} />
+		</li>
+	</ol>
+
+	<h2 class='mt-12 mb-3 text-xl font-[650]'>If it doesn't work</h2>
+	<ul class='list-disc space-y-2 pl-6'>
+		<li>
+			<strong>Failed to open port:</strong> another program has it, most often a serial monitor. Close it and try again.
+		</li>
+		<li>
+			<strong>No port to pick:</strong> try another cable; some only carry power. On Windows, the CH340 may need its driver.
+		</li>
+		<li>
+			<strong>It can't find the board, or never asks for Wi-Fi:</strong> press the board's RST button and try again.
+		</li>
+		<li>
+			<strong>It says it couldn't connect:</strong> check the password, and that the network is 2.4 GHz. The board stays on
+			the network it had before.
+		</li>
+		<li>
+			<strong>No computer at hand?</strong> Use the <Link href='/wifi/#hotspot'>setup hotspot</Link> from a phone instead.
+		</li>
+	</ul>
+</DocsLayout>

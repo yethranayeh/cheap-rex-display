@@ -1,0 +1,45 @@
+---
+import { site } from "../../config/site";
+
+interface Props {
+	/** From the top down. The last one is the current page */
+	items: { name: string; path: string }[];
+}
+
+const { items } = Astro.props;
+const breadcrumbList = {
+	"@context": "https://schema.org",
+	"@type": "BreadcrumbList",
+	itemListElement: items.map((item, index) => ({
+		"@type": "ListItem",
+		position: index + 1,
+		name: item.name,
+		item: new URL(item.path, site.url).href
+	}))
+};
+---
+
+<nav class='mb-2 text-sm text-muted-foreground' aria-label='Breadcrumb'>
+	<ol class='flex flex-wrap items-center gap-x-2 gap-y-1'>
+		{
+			items.map((item, index) => {
+				const current = index === items.length - 1;
+				return (
+					<li class='flex items-center gap-x-2'>
+						{index > 0 && <span aria-hidden='true'>/</span>}
+						{current ? (
+							<span aria-current='page'>{item.name}</span>
+						) : (
+							<a
+								class='text-primary underline decoration-2 underline-offset-3 hover:text-foreground hover:decoration-primary'
+								href={item.path}>
+								{item.name}
+							</a>
+						)}
+					</li>
+				);
+			})
+		}
+	</ol>
+</nav>
+<script type='application/ld+json' is:inline set:html={JSON.stringify(breadcrumbList).replaceAll("<", "\\u003c")} />

@@ -1,0 +1,28 @@
+---
+import type { ComponentProps } from "astro/types";
+
+import BaseLayout from "./BaseLayout.astro";
+import SiteHeader from "../components/feature/SiteHeader.astro";
+import SiteFooter from "../components/feature/SiteFooter.astro";
+import Breadcrumbs from "../components/ui/Breadcrumbs.astro";
+
+type Props = ComponentProps<typeof BaseLayout> & {
+	/** The trail below Docs, ending with this page. Leave it out on /docs/ itself. */
+	breadcrumbs?: { name: string; path: string }[];
+};
+
+const { breadcrumbs, ...metadata } = Astro.props;
+const docsHome = { name: "Docs", path: "/docs/" };
+---
+
+<BaseLayout {...metadata}>
+	<slot name='head' slot='head' />
+
+	<main class='mx-auto max-w-page px-4 pt-12'>
+		<SiteHeader />
+		{breadcrumbs && <Breadcrumbs items={[docsHome, ...breadcrumbs]} />}
+		<slot />
+	</main>
+
+	<SiteFooter />
+</BaseLayout>

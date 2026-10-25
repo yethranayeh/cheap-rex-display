@@ -30,9 +30,12 @@ It checks each part against the size and sha256 in the release's `firmware.json`
 - `src/config/site.ts`: the name, URL, description and links, written once.
 - `src/config/palettes.ts`: the palettes for the switcher, and the `localStorage` key.
 - `src/styles/global.css`: the design tokens and the palettes.
+- `src/config/site.ts`: also `mediaSrc()` for Cloudinary media and `readme()` for a README section on GitHub.
 - `src/layouts/BaseLayout.astro`: `<head>` and the page shell.
-- `src/components/ui/`: reusable generic elements
-- `src/components/feature/`: CRD's own elemnets
+- `src/layouts/DocsLayout.astro`: every docs page: the site header, breadcrumbs under Docs, and the footer. Each docs page also gets a line on `/docs/` (`src/pages/docs/index.astro`).
+- `src/components/ui/`: reusable generic elements: `Link` (`offsite` adds ↗), `Breadcrumbs`, `Thumbnail` (a screenshot beside a step), `ImageFigure` (a captioned image in the flow), `PreviewCard`, `Highlight`, `Badge`, `Button`.
+- `src/components/feature/`: CRD's own elements: `Notes` and `NoteLink` (numbered media endnotes), `BrowserSupport`, `VideoFigure`, `SiteHeader`, `SiteFooter`.
+- A page's media lives beside it in `_media.ts` (the underscore keeps it out of the routes).
 
 ## Tokens
 
