@@ -75,7 +75,7 @@
 
 #define HOSTNAME "crd"
 #define FIRMWARE_NAME "cheap-rex-display"
-#define FIRMWARE_VERSION "0.1.0"  // for Improv: ESP Web Tools offers an update when its manifest differs
+#define FIRMWARE_VERSION "0.2.0"  // for Improv: ESP Web Tools offers an update when its manifest differs
 
 #define SETTINGS_NAMESPACE "crd"
 #define KEY_WIFI_SSID "wifi_ssid"
