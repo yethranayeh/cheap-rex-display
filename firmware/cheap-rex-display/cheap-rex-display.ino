@@ -1346,7 +1346,7 @@ bool improvOnline() {
 }
 
 String improvUrl() {
-  return String("http://") + WiFi.localIP().toString() + "/";
+  return String("http://") + WiFi.localIP().toString() + "/settings";
 }
 
 bool improvJoin(const String &ssid, const String &password) {
