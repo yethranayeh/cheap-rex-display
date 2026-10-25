@@ -127,6 +127,18 @@
 #define SPLASH_WORD_MS 360
 #define SPLASH_HOLD_MS 1500
 #define SPLASH_MAX_MS 10000
+// With no rows, the splash Rex stands above the note and wobbles:
+//  WOBBLE_DRAWINGS drawings of him, each point moved by up to WOBBLE_PX, take
+//  turns every WOBBLE_MS, like hand-drawn animation. His 1-bit canvas leaves
+//  WOBBLE_PX + 3 around him.
+#define WOBBLE_PX 1.0f
+#define WOBBLE_DRAWINGS 3
+#define WOBBLE_MS 250
+#define WOBBLE_W 148
+#define WOBBLE_H 144
+#define WOBBLE_X ((SCREEN_W - WOBBLE_W) / 2)
+#define WOBBLE_Y 46
+#define EMPTY_NOTE_Y 204
 #define TAP_PORT 81
 #define PING_MS 15000
 
@@ -247,6 +259,9 @@ TFT_eSprite canvas = TFT_eSprite(&tft);
 // A hash of what the header (0) and each row slot (1 on) last sent, so slots
 //  that come out the same are not sent again. 0 means unknown.
 uint32_t shownSlots[MAX_SLOTS + 1];
+// The wobbling Rex of the empty screen, 2.6 KB
+TFT_eSprite wobbleCanvas = TFT_eSprite(&tft);
+bool rexShown = false;  // the empty screen's Rex is up and wobbles
 SPIClass touchSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
 WebServer server(80);
@@ -791,6 +806,50 @@ void sendSlot(int slot, int y, int h) {
 void clearScreen() {
   tft.fillScreen(TFT_BLACK);
   memset(shownSlots, 0, sizeof(shownSlots));
+  rexShown = false;
+}
+
+// Draws wobbling Rex's drawing `n` in his canvas: the splash strokes with each
+//  point moved a little, always the same way for the same n.
+void drawWobbleRex(uint32_t n) {
+  const float s = SPLASH_REX_H / REX_H, offset = REX_PEN * s / 2, margin = WOBBLE_PX + 3;
+  uint32_t seed = n * 2654435761u + 1;
+  auto wobble = [&]() {
+    seed = seed * 1664525 + 1013904223;
+    return ((seed >> 8) / 16777216.0f * 2 - 1) * WOBBLE_PX;
+  };
+  wobbleCanvas.fillSprite(0);
+
+  for (const Stroke &st : STROKES) {
+    float px = 0, py = 0;
+    for (int i = 0; i < st.n; i++) {
+      float x = margin + st.pts[i][0] * s + wobble(), y = margin + st.pts[i][1] * s + wobble();
+      if (i > 0) {
+        int steps = max(1, (int)ceilf(hypotf(x - px, y - py) / 0.5f));
+        for (int k = 0; k <= steps; k++) {
+          wobbleCanvas.fillRect(lroundf(px + (x - px) * k / steps - offset), lroundf(py + (y - py) * k / steps - offset), 2, 2, 1);
+        }
+      }
+      px = x;
+      py = y;
+    }
+  }
+}
+
+// Moves the empty screen's Rex on to his next drawing when it's time.
+void wobbleRex() {
+  static uint32_t shown = UINT32_MAX;
+  if (!rexShown) {
+    shown = UINT32_MAX;
+    return;
+  }
+
+  uint32_t n = millis() / WOBBLE_MS % WOBBLE_DRAWINGS;
+  if (n != shown) {
+    shown = n;
+    drawWobbleRex(n);
+    wobbleCanvas.pushSprite(WOBBLE_X, WOBBLE_Y);
+  }
 }
 
 // The grey bar at the top, with Rex and a title, drawn in the canvas
@@ -1017,10 +1076,19 @@ void drawRows() {
       canvas.fillRect(0, 0, SCREEN_W, h, TFT_BLACK);
       canvas.setTextColor(COLOR_GREY, TFT_BLACK);
       canvas.setTextDatum(MC_DATUM);
-      canvas.drawString("No agent status yet", SCREEN_W / 2, (SCREEN_H - HEADER_H) / 2 - s * h, 2);
+      canvas.drawString("No agent status yet", SCREEN_W / 2, EMPTY_NOTE_Y - HEADER_H - s * h, 2);
       sendSlot(s + 1, HEADER_H + s * h, h);
     }
+    // A slot sent just now may have cut through him.
+    wobbleCanvas.pushSprite(WOBBLE_X, WOBBLE_Y);
+    rexShown = true;
     return;
+  }
+
+  // Slots left blank under the rows would otherwise keep pieces of Rex.
+  if (rexShown) {
+    rexShown = false;
+    memset(shownSlots + 1, 0, MAX_SLOTS * sizeof(shownSlots[0]));
   }
 
   // The last slot is preserved for pagination for when the rows don't fit
@@ -1845,6 +1913,12 @@ void setup() {
   if (!canvas.createSprite(SCREEN_W, ROW_H_FINGER)) {
     Serial.println("No memory for the row canvas");
   }
+  wobbleCanvas.setColorDepth(1);
+  if (!wobbleCanvas.createSprite(WOBBLE_W, WOBBLE_H)) {
+    Serial.println("No memory for the empty screen's Rex");
+  }
+  wobbleCanvas.setBitmapColor(TFT_WHITE, TFT_BLACK);
+  drawWobbleRex(0);
 
   touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSPI);
@@ -1998,5 +2072,6 @@ void loop() {
     drawRows();
   } else if (!dirty) {
     refreshAges();
+    wobbleRex();
   }
 }

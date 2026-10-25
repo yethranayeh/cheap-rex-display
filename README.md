@@ -90,7 +90,7 @@ The LED speaks for each agent that waits for you, one after another, then pauses
 
 If nobody is waiting, it glows green for a moment when an agent finishes, breathes blue while agents work, and stays magenta on an error. `LedStyle` in the firmware switches each of these: one signal for all instead of one per agent, a single red pulse instead of the double blink (or the double only after a few minutes), steady blue, steady green.
 
-On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my handwriting. The header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
+On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my handwriting. With no agent status to show, the same Rex appears and wobbles a little like a hand-drawn cartoon. The header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
 
 <p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852972/opencode-permission-led_ymwmer.webp" alt="opencode asks for permission on the Mac, and the board shows it on top with the LED turning red" width="480"></p>
 
