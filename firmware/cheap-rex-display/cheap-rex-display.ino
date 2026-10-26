@@ -83,7 +83,7 @@
 
 #define HOSTNAME "crd"
 #define FIRMWARE_NAME "cheap-rex-display"
-#define FIRMWARE_VERSION "0.2.0"  // for Improv: ESP Web Tools offers an update when its manifest differs
+#define FIRMWARE_VERSION "0.3.0"  // for Improv: ESP Web Tools offers an update when its manifest differs
 
 #define SETTINGS_NAMESPACE "crd"
 #define KEY_WIFI_SSID "wifi_ssid"
@@ -96,10 +96,10 @@
 //  exact file, so a board only runs the UI release it was built for.
 #define SETTINGS_SITE "https://cheap-rex-display.pages.dev"
 #ifndef SETTINGS_UI
-#define SETTINGS_UI SETTINGS_SITE "/prototypes/settings-ui.js"
+#define SETTINGS_UI SETTINGS_SITE "/prototypes/settings-ui-0.3.0.js"
 #endif
 #ifndef SETTINGS_UI_SRI
-#define SETTINGS_UI_SRI "sha384-hivIFvtD2UAZlb4TCOeiy7s1KZXShn3bUktgBwOeLurTFK/sTlZBzp1+q/V6xmZD"
+#define SETTINGS_UI_SRI "sha384-qMB9qI2ErzPlVp7Vh7ZlwXg6gpN29zUemqMC2Gle/FInPywi9cs4fsgaRCIoYv1f"
 #endif
 
 // Joining Wi-Fi. While offline the board starts over every REJOIN_MS. The
