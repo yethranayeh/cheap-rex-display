@@ -3,8 +3,9 @@
 // Joins your Wi-Fi as crd.local and lists the agent status it is sent over
 //  HTTP, most urgent first. The RGB LED blinks once for each agent that waits
 //  for you, in the color of what it waits for, and otherwise shows the most
-//  urgent state (see LedStyle). Display only: nothing here can answer or
-//  approve anything in an agent session.
+//  urgent state (see LedStyle). While nothing waits, a calm screen counts the
+//  agents by state instead; a tap shows the list for LIST_MS. Display only:
+//  nothing here can answer or approve anything in an agent session.
 //
 // HTTP API, form or query parameters, plain-text replies unless noted:
 //   POST /status  source, key, session, app, state, kind, msg
@@ -17,8 +18,10 @@
 //   POST /reset   source. Drops everything from that source.
 //   GET  /        plain-text dump of what the display holds.
 //   GET  /screen.bmp  what the screen shows, read back from the display.
-//   GET  /api/settings  the settings as JSON: {"rows_compact":false}
-//   POST /api/settings  rows_compact=true|false; replies with the settings.
+//   GET  /api/settings  the settings as JSON:
+//                 {"rows_compact":false,"header_counts":true,"calm_screen":true}
+//   POST /api/settings  rows_compact, header_counts, calm_screen: true|false;
+//                 replies with the settings.
 //   GET  /settings  the settings page: loads the settings UI from the website.
 // A source that sends nothing for STALE_MS is shown grey and ignored by the
 //  LED, so a sleeping laptop leaves no "working" behind.
@@ -54,6 +57,8 @@
 //   wifi_ssid    string  saved network
 //   wifi_pass    string  its password
 //   rows_compact bool    compact rows, toggled by the button at the right of the header
+//   header_counts bool   the counts in the header over the list, on unless set
+//   calm_screen  bool    the calm screen while nothing waits, on unless set
 //  Reserved for the settings screen, not read yet:
 //   led_count    bool    LedStyle.countBlocked
 //   led_double   int     LedStyle.doubleAfterMin
@@ -84,6 +89,8 @@
 #define KEY_WIFI_SSID "wifi_ssid"
 #define KEY_WIFI_PASSWORD "wifi_pass"
 #define KEY_ROWS_COMPACT "rows_compact"
+#define KEY_HEADER_COUNTS "header_counts"
+#define KEY_CALM_SCREEN "calm_screen"
 
 // The settings UI lives on the website. SETTINGS_UI_SRI is the sha384 of that
 //  exact file, so a board only runs the UI release it was built for.
@@ -127,7 +134,8 @@
 #define SPLASH_WORD_MS 360
 #define SPLASH_HOLD_MS 1500
 #define SPLASH_MAX_MS 10000
-// With no rows, the splash Rex stands above the note and wobbles:
+// The calm screen, shown when nothing waits: the splash Rex stands above two
+//  lines, the counts and how long it has been quiet, and wobbles:
 //  WOBBLE_DRAWINGS drawings of him, each point moved by up to WOBBLE_PX, take
 //  turns every WOBBLE_MS, like hand-drawn animation. His 1-bit canvas leaves
 //  WOBBLE_PX + 3 around him.
@@ -138,7 +146,8 @@
 #define WOBBLE_H 144
 #define WOBBLE_X ((SCREEN_W - WOBBLE_W) / 2)
 #define WOBBLE_Y 46
-#define EMPTY_NOTE_Y 204
+#define CALM_COUNTS_Y 207
+#define CALM_QUIET_Y 230
 #define TAP_PORT 81
 #define PING_MS 15000
 
@@ -171,6 +180,10 @@
 #define ROW_H_COMPACT 24  // 9 rows, for the stylus
 #define MAX_SLOTS ((SCREEN_H - HEADER_H) / ROW_H_COMPACT)
 #define PAGE_MS 30000     // a later page goes back to the first after this long untouched
+// The list stays this long after the last tap on it, or after the last agent
+//  stopped waiting, before the calm screen comes back: enough to read and tap
+//  a row, and to see an agent that waits again a moment later in the same place.
+#define LIST_MS 60000
 #define MAX_ENTRIES 32
 #define MAX_SOURCES 4
 #define STALE_MS 60000
@@ -259,9 +272,9 @@ TFT_eSprite canvas = TFT_eSprite(&tft);
 // A hash of what the header (0) and each row slot (1 on) last sent, so slots
 //  that come out the same are not sent again. 0 means unknown.
 uint32_t shownSlots[MAX_SLOTS + 1];
-// The wobbling Rex of the empty screen, 2.6 KB
+// The wobbling Rex of the calm screen, 2.6 KB
 TFT_eSprite wobbleCanvas = TFT_eSprite(&tft);
-bool rexShown = false;  // the empty screen's Rex is up and wobbles
+bool rexShown = false;  // the calm screen is up, and its Rex wobbles
 SPIClass touchSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
 WebServer server(80);
@@ -272,10 +285,15 @@ bool dirty = true;
 unsigned long lastDraw = 0;
 unsigned long holdUntil = 0;  // a tapped row's outline stays up until then
 bool compactRows = false;
+bool headerCounts = true;
+bool calmEnabled = true;  // off: the list stays, and the calm screen shows only with no rows at all
 int page = 0;                 // which page of rows is shown, when they don't all fit
 unsigned long pageAt = 0;     // when the page last changed
 int pageCount = 1;
 int moreSlot = -1;            // the slot that holds the page buttons, or -1 when all rows fit
+unsigned long listUntil = 0;  // the list stays instead of the calm screen until then; 0 when not
+unsigned long quietSince = 0; // when the last agent stopped waiting, 0 while none has waited
+char shownQuiet[32];          // the calm screen's quiet line as drawn
 
 String wifiSsid, wifiPassword;  // the network in use
 WifiFrom wifiFrom = WIFI_NONE;
@@ -612,16 +630,38 @@ void handleScreen() {
 // The settings, for the settings UI. It runs on the board's own page (below),
 //  so it calls these from the same origin and no CORS headers are needed.
 void sendSettings() {
-  server.send(200, "application/json", String("{\"rows_compact\":") + (compactRows ? "true" : "false") + "}\n");
+  server.send(200, "application/json", String("{\"rows_compact\":") + (compactRows ? "true" : "false")
+    + ",\"header_counts\":" + (headerCounts ? "true" : "false")
+    + ",\"calm_screen\":" + (calmEnabled ? "true" : "false") + "}\n");
+}
+
+// Takes a true|false setting from the request into `value` and flash.
+void saveFlag(const char *key, bool &value) {
+  if (!server.hasArg(key) || (server.arg(key) == "true") == value) {
+    return;
+  }
+
+  value = server.arg(key) == "true";
+  Preferences settings;
+  settings.begin(SETTINGS_NAMESPACE, false);
+  settings.putBool(key, value);
+  settings.end();
+  dirty = true;
 }
 
 void handleSettingsSave() {
-  if (server.hasArg(KEY_ROWS_COMPACT)) {
-    String v = server.arg(KEY_ROWS_COMPACT);
-    if (v != "true" && v != "false") {
-      server.send(400, "text/plain", "rows_compact is true or false\n");
+  for (const char *key : {KEY_ROWS_COMPACT, KEY_HEADER_COUNTS, KEY_CALM_SCREEN}) {
+    if (server.hasArg(key) && server.arg(key) != "true" && server.arg(key) != "false") {
+      server.send(400, "text/plain", String(key) + " is true or false\n");
       return;
     }
+  }
+
+  saveFlag(KEY_HEADER_COUNTS, headerCounts);
+  saveFlag(KEY_CALM_SCREEN, calmEnabled);
+
+  if (server.hasArg(KEY_ROWS_COMPACT)) {
+    String v = server.arg(KEY_ROWS_COMPACT);
     if ((v == "true") != compactRows) {
       setCompactRows(v == "true");
       page = 0;
@@ -836,7 +876,7 @@ void drawWobbleRex(uint32_t n) {
   }
 }
 
-// Moves the empty screen's Rex on to his next drawing when it's time.
+// Moves the calm screen's Rex on to his next drawing when it's time.
 void wobbleRex() {
   static uint32_t shown = UINT32_MAX;
   if (!rexShown) {
@@ -892,6 +932,92 @@ void drawRowsToggle() {
   }
 }
 
+// Fills order with the indices of used entries, most urgent first, one per
+//  pane, and returns how many. A program can report several records (opencode
+//  sends one for the pane and one for its chat session), which would otherwise
+//  show as duplicate rows.
+int panesByUrgency(int *order) {
+  int count = 0;
+  for (int s = 0; s < STATE_COUNT; s++) {
+    for (int i = 0; i < MAX_ENTRIES; i++) {
+      if (entries[i].used && entries[i].state == s && !listed(order, count, entries[i])) {
+        order[count++] = i;
+      }
+    }
+  }
+
+  // Among blocked rows, the one that has waited longest comes first.
+  unsigned long now = millis();
+  int blocked = 0;
+  while (blocked < count && entries[order[blocked]].state == BLOCKED) {
+    blocked++;
+  }
+  for (int i = 1; i < blocked; i++) {
+    int idx = order[i], j = i;
+    for (; j > 0 && now - entries[order[j - 1]].since < now - entries[idx].since; j--) {
+      order[j] = order[j - 1];
+    }
+    order[j] = idx;
+  }
+  return count;
+}
+
+// Panes per state, leaving out stale sources, as the LED does. Returns the total.
+int countLive(const int *order, int count, int *counts) {
+  int total = 0;
+  memset(counts, 0, STATE_COUNT * sizeof(counts[0]));
+  for (int i = 0; i < count; i++) {
+    const Entry &e = entries[order[i]];
+    if (!isStale(e.source)) {
+      counts[e.state]++;
+      total++;
+    }
+  }
+  return total;
+}
+
+// The calm screen instead of the list: nothing waits, and no tap asked for the list.
+bool calmScreen(const int *counts, int count) {
+  return count == 0 || (calmEnabled && counts[BLOCKED] == 0 && listUntil == 0);
+}
+
+const char *countName(int state) {
+  return state == BLOCKED ? "waiting" : stateNames[state];
+}
+
+// The counts in the header, from x within `room`: a chip in the state's color
+//  and "2 waiting" for each state there is, or the numbers alone when the
+//  words don't fit.
+void drawSummary(const int *counts, int x, int room) {
+  for (int words = 1; words >= 0; words--) {
+    int w = 0;
+    for (int s = 0; s < STATE_COUNT; s++) {
+      if (counts[s]) {
+        String text = words ? String(counts[s]) + " " + countName(s) : String(counts[s]);
+        w += 7 + canvas.textWidth(text, 2) + 10;
+      }
+    }
+    if (w - 10 > room && words) {
+      continue;
+    }
+
+    canvas.setTextColor(TFT_WHITE, TFT_DARKGREY);
+    canvas.setTextDatum(ML_DATUM);
+    for (int s = 0; s < STATE_COUNT; s++) {
+      if (!counts[s]) {
+        continue;
+      }
+
+      // The idle chip's grey is the bar's own, so it takes a lighter one.
+      canvas.fillRect(x, 6, 4, HEADER_H - 12, s == IDLE ? TFT_LIGHTGREY : stateColors[s]);
+      String text = words ? String(counts[s]) + " " + countName(s) : String(counts[s]);
+      canvas.drawString(text, x + 7, HEADER_H / 2, 2);
+      x += 7 + canvas.textWidth(text, 2) + 10;
+    }
+    return;
+  }
+}
+
 void drawHeader() {
   // Sources left of the button: white while live, black when stale. The title
   //  gets the room left of them.
@@ -907,7 +1033,15 @@ void drawHeader() {
   if (canvas.textWidth(title, 2) > room && WiFi.status() == WL_CONNECTED) {
     title = WiFi.localIP().toString();
   }
-  drawBar(fitText(title, room, 2));
+  // Over the list the title gives way to the counts. The calm screen has them
+  //  large, so it keeps the address.
+  int order[MAX_ENTRIES], counts[STATE_COUNT];
+  int count = panesByUrgency(order);
+  bool summary = headerCounts && countLive(order, count, counts) > 0 && !calmScreen(counts, count);
+  drawBar(summary ? String() : fitText(title, room, 2));
+  if (summary) {
+    drawSummary(counts, 3 + HEADER_REX.w + 5, room);
+  }
   drawRowsToggle();
 
   int x = SCREEN_W - TOGGLE_W - 4;
@@ -1029,32 +1163,77 @@ void drawPageButton(int x, int y, int h, bool next, const String &label, bool en
   canvas.drawString(label, x + PAGE_BUTTON_W / 2 + (next ? -6 : 6), mid, 2);
 }
 
-void drawRows() {
-  // Indices of used entries, most urgent first, one per pane.
-  // A program can report several records (opencode sends one for the pane and one
-  //  for its chat session), which would otherwise show as duplicate rows.
-  int order[MAX_ENTRIES], count = 0;
-  for (int s = 0; s < STATE_COUNT; s++) {
-    for (int i = 0; i < MAX_ENTRIES; i++) {
-      if (entries[i].used && entries[i].state == s && !listed(order, count, entries[i])) {
-        order[count++] = i;
+// Keeps the list up while an agent waits and for LIST_MS after the last one
+//  stops, when the calm screen's quiet time starts. Runs before each redraw.
+void trackWaiting() {
+  int order[MAX_ENTRIES], counts[STATE_COUNT];
+  countLive(order, panesByUrgency(order), counts);
+  static bool waiting = false;
+  if (waiting && counts[BLOCKED] == 0) {
+    quietSince = millis();
+  }
+  if (waiting || counts[BLOCKED] > 0) {
+    listUntil = millis() + LIST_MS;
+  }
+  waiting = counts[BLOCKED] > 0;
+}
+
+// How long nothing has waited, for the calm screen
+void quietText(char *out, size_t size) {
+  char age[8];
+  formatAge(millis() - quietSince, age, sizeof(age));
+  if (quietSince == 0) {
+    strlcpy(out, "Nothing has waited yet", size);
+  } else if (!age[0]) {
+    strlcpy(out, "Quiet for under a minute", size);
+  } else {
+    snprintf(out, size, "Quiet for %s", age);
+  }
+}
+
+// The counts centred at y in the canvas, each in its state's color, with grey
+//  dots between. Font 4 when it fits, so it reads across the desk.
+void drawCounts(const int *counts, int y) {
+  int font = 4;
+  for (;;) {
+    int w = 0;
+    for (int s = 0; s < STATE_COUNT; s++) {
+      if (counts[s]) {
+        w += canvas.textWidth(String(counts[s]) + " " + countName(s), font) + 16;
       }
     }
-  }
-
-  // Among blocked rows, the one that has waited longest comes first.
-  unsigned long now = millis();
-  int blocked = 0;
-  while (blocked < count && entries[order[blocked]].state == BLOCKED) {
-    blocked++;
-  }
-  for (int i = 1; i < blocked; i++) {
-    int idx = order[i], j = i;
-    for (; j > 0 && now - entries[order[j - 1]].since < now - entries[idx].since; j--) {
-      order[j] = order[j - 1];
+    w -= 16;
+    if (w > SCREEN_W - 16 && font == 4) {
+      font = 2;
+      continue;
     }
-    order[j] = idx;
+
+    int x = (SCREEN_W - w) / 2;
+    bool first = true;
+    canvas.setTextDatum(ML_DATUM);
+    for (int s = 0; s < STATE_COUNT; s++) {
+      if (!counts[s]) {
+        continue;
+      }
+
+      if (!first) {
+        canvas.fillCircle(x - 8, y, 2, COLOR_GREY);
+      }
+      first = false;
+      String text = String(counts[s]) + " " + countName(s);
+      canvas.setTextColor(stateColors[s], TFT_BLACK);
+      canvas.drawString(text, x, y, font);
+      x += canvas.textWidth(text, font) + 16;
+    }
+    return;
   }
+}
+
+void drawRows() {
+  int order[MAX_ENTRIES];
+  int count = panesByUrgency(order);
+  int counts[STATE_COUNT];
+  int live = countLive(order, count, counts);
 
   int h = rowHeight();
   int slots = (SCREEN_H - HEADER_H) / h;
@@ -1068,15 +1247,27 @@ void drawRows() {
   }
   drawnCount = 0;
   moreSlot = -1;
-  if (count == 0) {
+  if (calmScreen(counts, count)) {
     page = 0;
-    // The note spans slots: each draws it shifted up by its own place, and the
-    //  canvas cuts off the rest.
+    shownQuiet[0] = 0;
+    if (live > 0) {
+      quietText(shownQuiet, sizeof(shownQuiet));
+    }
+    // The lines span slots: each draws them shifted up by its own place, and
+    //  the canvas cuts off the rest.
     for (int s = 0; s < slots; s++) {
+      int y = -HEADER_H - s * h;
       canvas.fillRect(0, 0, SCREEN_W, h, TFT_BLACK);
       canvas.setTextColor(COLOR_GREY, TFT_BLACK);
       canvas.setTextDatum(MC_DATUM);
-      canvas.drawString("No agent status yet", SCREEN_W / 2, EMPTY_NOTE_Y - HEADER_H - s * h, 2);
+      if (live > 0) {
+        drawCounts(counts, CALM_COUNTS_Y + y);
+        canvas.setTextColor(COLOR_GREY, TFT_BLACK);
+        canvas.setTextDatum(MC_DATUM);
+        canvas.drawString(shownQuiet, SCREEN_W / 2, CALM_QUIET_Y + y, 2);
+      } else {
+        canvas.drawString(count == 0 ? "No agent status yet" : "No live agent status", SCREEN_W / 2, CALM_COUNTS_Y + y, 2);
+      }
       sendSlot(s + 1, HEADER_H + s * h, h);
     }
     // A slot sent just now may have cut through him.
@@ -1144,6 +1335,14 @@ void refreshAges() {
   }
 
   lastCheck = millis();
+  if (rexShown && shownQuiet[0]) {
+    char quiet[sizeof(shownQuiet)];
+    quietText(quiet, sizeof(quiet));
+    if (strcmp(quiet, shownQuiet) != 0) {
+      dirty = true;
+    }
+  }
+
   char age[8];
   for (int r = 0; r < drawnCount; r++) {
     const Entry &e = entries[drawnRows[r].entry];
@@ -1217,6 +1416,14 @@ void checkTouch() {
     setCompactRows(!compactRows);
 
     page = 0;
+    dirty = true;
+    return;
+  }
+
+  // Any tap below the header keeps the list up for another LIST_MS, and a tap
+  //  on the calm screen brings it up.
+  listUntil = millis() + LIST_MS;
+  if (rexShown) {
     dirty = true;
     return;
   }
@@ -1325,6 +1532,8 @@ void loadRowStyle() {
   // Opening read-only fails while nothing was ever saved.
   if (settings.begin(SETTINGS_NAMESPACE, true)) {
     compactRows = settings.getBool(KEY_ROWS_COMPACT, false);
+    headerCounts = settings.getBool(KEY_HEADER_COUNTS, true);
+    calmEnabled = settings.getBool(KEY_CALM_SCREEN, true);
     settings.end();
   }
 }
@@ -1915,7 +2124,7 @@ void setup() {
   }
   wobbleCanvas.setColorDepth(1);
   if (!wobbleCanvas.createSprite(WOBBLE_W, WOBBLE_H)) {
-    Serial.println("No memory for the empty screen's Rex");
+    Serial.println("No memory for the calm screen's Rex");
   }
   wobbleCanvas.setBitmapColor(TFT_WHITE, TFT_BLACK);
   drawWobbleRex(0);
@@ -2046,6 +2255,11 @@ void loop() {
     dirty = true;
   }
 
+  if (listUntil != 0 && (long)(millis() - listUntil) >= 0) {
+    listUntil = 0;
+    dirty = true;
+  }
+
   // A source goes stale with time alone, without a request, so watch for it.
   static uint8_t staleMask = 0;
   uint8_t mask = 0;
@@ -2068,6 +2282,7 @@ void loop() {
   if (dirty && millis() - lastDraw >= REDRAW_MS) {
     dirty = false;
     lastDraw = millis();
+    trackWaiting();
     drawHeader();
     drawRows();
   } else if (!dirty) {

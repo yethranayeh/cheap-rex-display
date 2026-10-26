@@ -36,7 +36,7 @@ It checks each part against the size and sha256 in the release's `firmware.json`
 - `src/layouts/DocsLayout.astro`: every docs page: the site header, breadcrumbs under Docs, and the footer. Each docs page also gets a line on `/docs/` (`src/pages/docs/index.astro`).
 - `src/components/ui/`: reusable generic elements: `Link` (`offsite` adds ↗), `Breadcrumbs`, `Thumbnail` (a screenshot beside a step), `ImageFigure` (a captioned image in the flow), `PreviewCard`, `Highlight`, `Badge`, `Button`.
 - `src/components/feature/`: CRD's own elements: `Notes` and `NoteLink` (numbered media endnotes), `BrowserSupport`, `VideoFigure`, `SiteHeader`, `SiteFooter`.
-- `public/prototypes/settings-ui.js`: the settings page the board's `/settings` loader fetches, see below.
+- `public/prototypes/settings-ui-<version>.js`: the settings page the board's `/settings` loader fetches, one per firmware release, see below. `settings-ui.js` is the first, from before releases had one.
 - A page's media lives beside it in `_media.ts` (the underscore keeps it out of the routes).
 
 ## Tokens
@@ -71,7 +71,9 @@ To add one, add its block to `global.css` and its id to `palettes.ts`, then run 
 
 ## Settings page
 
-The board serves a loader at `/settings` that runs `public/prototypes/settings-ui.js` from this site, pinned by the sha384 in `SETTINGS_UI_SRI` in the firmware. Any change to the file, even formatting, changes the hash. After a deploy, copy the hash of the deployed file into the firmware and reflash, or boards will refuse the script.
+The board serves a loader at `/settings` that runs the settings page from this site: `SETTINGS_UI` in the firmware names the file and `SETTINGS_UI_SRI` pins its sha384. Any change to the file, even formatting, changes the hash. After a deploy, copy the hash of the deployed file into the firmware and reflash, or boards will refuse the script.
+
+Each firmware release has its own file, `public/prototypes/settings-ui-<version>.js`. While a release is in the works, its file may change; once the release ships, boards in the field pin it, so it never changes again and the next release starts a new file. Keep the old files: every release out there still loads its own.
 
 ## Social image
 

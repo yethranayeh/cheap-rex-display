@@ -76,6 +76,8 @@ Without **arduino-cli**, copy the file over `User_Setup.h` in the **TFT_eSPI** l
 
 `firmware/cheap-rex-display` joins your Wi-Fi as `crd.local` and lists the agent status it receives over HTTP, with most urgent appearing first. The agent that has waited the longest is listed first among other agents that are also waiting.
 
+While nothing waits, the board shows a calm screen instead of the list. The calm screen is optional and the `calm_screen` setting turns it off in the config. Tap it to get back to the list. The list stays while you use it and gives way to the calm screen again a minute after your last tap. If an agent requires your attention, the list comes up by itself and stays until a minute after the last agent stopped waiting. Over the list, the header shows the counts in place of the board's address, which the `header_counts` setting turns off.
+
 Rows are sized for a finger with the option for a compact look. The button at the right of the header switches to compact rows, which can be used to pack more information and can still be used comfortably if you have a stylus. The pagination buttons under the list also follow the view choice.
 
 The names at the right of the header are the Rex servers whose watchers send to the board. Each is white while its watcher is in touch, and turns black when it goes quiet (see [Watcher](#watcher)).
@@ -90,7 +92,7 @@ The LED speaks for each agent that waits for you, one after another, then pauses
 
 If nobody is waiting, it glows green for a moment when an agent finishes, breathes blue while agents work, and stays magenta on an error. `LedStyle` in the firmware switches each of these: one signal for all instead of one per agent, a single red pulse instead of the double blink (or the double only after a few minutes), steady blue, steady green.
 
-On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my handwriting. With no agent status to show, the same Rex appears and wobbles a little like a hand-drawn cartoon. The header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
+On boot, there is an animation while the board joins Wi-Fi. You can tap to skip it or admire my handwriting. The header comes in three styles: `HEADER_REX` at the top of the firmware picks `REX_PIXEL` (default), `REX_SOFT` or `REX_BOLD`.
 
 <p align="center"><img src="https://res.cloudinary.com/drwbqceye/image/upload/v1792852972/opencode-permission-led_ymwmer.webp" alt="opencode asks for permission on the Mac, and the board shows it on top with the LED turning red" width="480"></p>
 
@@ -139,17 +141,18 @@ The hotspot also opens when the board can't join its network for 3 minutes. This
 
 A normal upload keeps the saved network. A full flash erase (`esptool.py erase_flash`, or an installer's "erase device" option) wipes it along with the board's other settings. Updating from the website keeps it: the installer writes the bootloader, partition table, boot selector and app, and leaves NVS alone. A new install from the website, over other firmware or a board the installer can't identify, erases the whole flash first, and the installer asks for Wi-Fi again right after.
 
-The board keeps its settings in the `Preferences` (NVS) namespace `crd`: `wifi_ssid` and `wifi_pass` for Wi-Fi and `rows_compact` for the row size. The firmware's header comment lists the keys. Passwords never go to the serial port or the screen.
+The board keeps its settings in the `Preferences` (NVS) namespace `crd`: `wifi_ssid` and `wifi_pass` for Wi-Fi `rows_compact` for the row size, `header_counts` for the counts in the header and `calm_screen` for the calm screen. The firmware's header comment lists the keys. Passwords never go to the serial port or the screen.
 
 ### Settings
 
-The board keeps one setting for now: compact rows, the same as the button in the header. Open `http://crd.local/settings` (or the board's address) and the board serves a tiny loader page that fetches the settings page from the website, so the firmware holds only a small API. The computer needs internet for this. The loader pins the page with a [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity) hash built into the firmware, so a board only runs the page release it was built for. Firefox's HTTPS-Only mode warns once about the `http://` address; proceeding works.
+The board keeps three settings for now: compact rows, the same as the button in the header, the counts in the header over the list, and the calm screen. Open `http://crd.local/settings` (or the board's address) and the board serves a tiny loader page that fetches the settings page from the website, so the firmware holds only a small API. The computer needs internet for this. The loader pins the page with a [Subresource Integrity](https://developer.mozilla.org/docs/Web/Security/Subresource_Integrity) hash built into the firmware, so a board only runs the page release it was built for.
 
 You can also use the API directly:
 
 ```sh
 curl -4 http://crd.local/api/settings
 curl -4 -d rows_compact=true http://crd.local/api/settings
+curl -4 -d header_counts=false http://crd.local/api/settings
 ```
 
 ## Watcher
